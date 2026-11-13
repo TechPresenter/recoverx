@@ -1,0 +1,14 @@
+node_modules/
+out/
+dist/
+release/
+coverage/
+test-results/
+playwright-report/
+.vite/
+package-lock.json
+*.ico
+*.icns
+*.png
+*.svg
+native/**/target/

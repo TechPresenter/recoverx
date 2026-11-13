@@ -1,0 +1,203 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  # A new push supersedes an in-flight run on the same ref.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Suppresses the Electron binary download progress bar, which produces
+  # thousands of useless log lines in CI.
+  ELECTRON_GET_NO_PROGRESS: "1"
+
+jobs:
+  verify:
+    name: Verify (Windows)
+    # RecoverX targets Windows 10 and 11 only, and the end-to-end suite drives
+    # a real Electron window — so the whole pipeline runs on Windows rather than
+    # using Linux for the cheap steps.
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        # `npm ci` installs exactly the locked tree. No native module compiles,
+        # because SQLite comes from `node:sqlite` — so no MSVC toolchain is
+        # needed on the runner.
+        run: npm ci
+
+      - name: Check formatting
+        run: npm run format:check
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type-check
+        run: npm run typecheck
+
+      - name: Unit and component tests
+        run: npm run test:coverage
+
+      - name: Build
+        run: npm run build
+        env:
+          # Compiled into the bundle by electron-vite, so the end-to-end suite
+          # below exercises the same licensing configuration a release ships
+          # with. Both are public values (a public key and a URL), kept as
+          # repository *variables* rather than secrets for that reason. Empty in
+          # forks, where the build runs as an unlicensed Free edition.
+          RECOVERX_LICENSE_PUBLIC_KEY: ${{ vars.RECOVERX_LICENSE_PUBLIC_KEY }}
+          RECOVERX_ACTIVATION_URL: ${{ vars.RECOVERX_ACTIVATION_URL }}
+
+      - name: Build licence server
+        # The activation server is deployed separately (docs/LICENSE-SERVER.md),
+        # but it shares the licence-key and token code with the app, so a change
+        # to either must still produce a server bundle.
+        run: npm run licensing:build
+
+      - name: End-to-end tests
+        # Drives the compiled bundle in out/ through Playwright's Electron
+        # launcher, so it must follow the build step.
+        run: npm run test:e2e
+
+      - name: Upload test artefacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: |
+            test-results/
+            playwright-report/
+            coverage/
+          retention-days: 14
+          if-no-files-found: ignore
+
+  package:
+    name: Package installer
+    needs: verify
+    # Only tagged releases produce an installer; every other run stops after
+    # verification.
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    env:
+      # Build-time licensing configuration — see the verify job. Public values
+      # (a public key and a URL), so they may sit at job level.
+      RECOVERX_LICENSE_PUBLIC_KEY: ${{ vars.RECOVERX_LICENSE_PUBLIC_KEY }}
+      RECOVERX_ACTIVATION_URL: ${{ vars.RECOVERX_ACTIVATION_URL }}
+      # Code-signing material is deliberately NOT here. A job-level variable is
+      # in the environment of every step — including `npm ci`, which runs the
+      # install scripts of every package in the lock file, and the type-check
+      # and Vite build, which run plugin code — and any of that code could read
+      # the private key and its password. The secrets are therefore given only
+      # to the two steps that sign, after everything else has been built.
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: Choose the packaging route
+        id: route
+        # The Microsoft Store pipeline refuses to run without signing material
+        # and for a pre-release version, by design. Without either, the job
+        # keeps its previous behaviour: an installer for the update feed.
+        shell: bash
+        env:
+          # Whether signing material exists — "true" or "false" — never the
+          # material itself.
+          HAS_PFX: ${{ secrets.WINDOWS_CERT_BASE64 != '' }}
+          HAS_HOOK: ${{ vars.WIN_SIGN_HOOK != '' }}
+        run: |
+          if [[ "$HAS_PFX" == "true" || "$HAS_HOOK" == "true" ]] && [[ "$GITHUB_REF_NAME" != *-* ]]; then
+            echo "store=true" >> "$GITHUB_OUTPUT"
+            echo "Signing material present and $GITHUB_REF_NAME is a stable release: running the Store pipeline."
+          else
+            echo "store=false" >> "$GITHUB_OUTPUT"
+            echo "No signing material, or a pre-release tag: building the installer only."
+          fi
+
+      - name: Build the app
+        # `npm run package:store` and `npm run package:win` both start with
+        # these two; running them separately keeps the type-check and the Vite
+        # build (third-party plugin code) out of the steps that hold the keys.
+        # The icon is generated, not committed, so it must be drawn before
+        # electron-builder looks for build/icon.ico.
+        run: |
+          npm run icon
+          npm run build
+
+      - name: Sign, verify and stage for the Microsoft Store
+        if: steps.route.outputs.store == 'true'
+        # scripts/package-store.mjs: preflight (licensing compiled into out/,
+        # version, signing), signed NSIS build including its NSIS plug-ins,
+        # Authenticode verification of every PE file, the electron-updater
+        # publisher check, and release/<version>/store/ with the Partner Center
+        # submission sheet. 7-Zip, used to look inside the installer, is
+        # preinstalled on windows-latest.
+        run: node scripts/package-store.mjs
+        env:
+          RECOVERX_STORE_DOWNLOAD_BASE: ${{ vars.RECOVERX_STORE_DOWNLOAD_BASE }}
+          # Signing material, for this step only (see the job's env). A .pfx is
+          # the legacy route (new certificates live on hardware). A cloud HSM
+          # is driven through a signing hook whose module path is a repository
+          # variable; add the hook's own credentials HERE, on this step, e.g.
+          #   ES_USERNAME: ${{ secrets.ES_USERNAME }}
+          # never at job level. See docs/BUILDING.md#code-signing.
+          CSC_LINK: ${{ secrets.WINDOWS_CERT_BASE64 }}
+          CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+          WIN_SIGN_HOOK: ${{ vars.WIN_SIGN_HOOK }}
+          WIN_PUBLISHER_NAME: ${{ vars.WIN_PUBLISHER_NAME }}
+
+      - name: Package installer
+        if: steps.route.outputs.store != 'true'
+        # `npm run package:win` without its build, which the step above ran.
+        # Signs with the .pfx when one is configured (pre-release tags);
+        # unsigned otherwise.
+        run: npx --no-install electron-builder --win --x64 --publish never
+        env:
+          CSC_LINK: ${{ secrets.WINDOWS_CERT_BASE64 }}
+          CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: recoverx-windows
+          # The installer, plus what the update feed needs beside it.
+          path: |
+            release/*/*.exe
+            release/*/*.blockmap
+            release/*/latest*.yml
+          retention-days: 30
+
+      - name: Upload Microsoft Store submission
+        if: steps.route.outputs.store == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: recoverx-microsoft-store
+          # URL-safe installer copy, its SHA-256, submission.md/json and the
+          # signature report — everything Partner Center needs.
+          path: release/**/store/**
+          retention-days: 90
+          if-no-files-found: error

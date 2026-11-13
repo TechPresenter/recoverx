@@ -1,0 +1,535 @@
+@import 'tailwindcss';
+
+/*
+ * RecoverX design system.
+ *
+ * Colour is expressed in OKLCH because it is perceptually uniform: a lightness
+ * step looks like the same step at every hue, which is what keeps the five
+ * selectable accents visually consistent without hand-tuning each one.
+ *
+ * Every token is a CSS variable on :root / .dark and is mapped into Tailwind's
+ * theme with `@theme inline`, so `bg-surface` resolves to the live variable and
+ * a theme switch is a single class change on <html> — no re-render, no flash.
+ */
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  color-scheme: light;
+
+  /* Structure */
+  --rx-bg: oklch(97.6% 0.005 255);
+  --rx-bg-subtle: oklch(95.4% 0.007 255);
+  --rx-surface: oklch(100% 0 0);
+  --rx-surface-2: oklch(98.4% 0.004 255);
+  --rx-surface-3: oklch(96.2% 0.006 255);
+  --rx-line: oklch(91.5% 0.007 255);
+  --rx-line-strong: oklch(84% 0.011 255);
+
+  /* Type */
+  --rx-ink: oklch(25% 0.018 262);
+  --rx-ink-muted: oklch(50% 0.015 262);
+  --rx-ink-subtle: oklch(64% 0.012 262);
+  --rx-ink-inverse: oklch(99% 0 0);
+
+  /* Semantic */
+  --rx-success: oklch(62% 0.15 155);
+  --rx-success-soft: oklch(94% 0.045 155);
+  --rx-warning: oklch(72% 0.15 78);
+  --rx-warning-soft: oklch(95% 0.05 78);
+  --rx-danger: oklch(58% 0.2 22);
+  --rx-danger-soft: oklch(94.5% 0.045 22);
+  --rx-info: oklch(60% 0.14 245);
+  --rx-info-soft: oklch(94.5% 0.04 245);
+
+  /* Elevation. Kept subtle — heavy shadows read as dated. */
+  --rx-shadow-sm: 0 1px 2px oklch(20% 0.02 260 / 0.06);
+  --rx-shadow-md: 0 2px 4px oklch(20% 0.02 260 / 0.05), 0 8px 20px oklch(20% 0.02 260 / 0.07);
+  --rx-shadow-lg: 0 4px 8px oklch(20% 0.02 260 / 0.05), 0 20px 48px oklch(20% 0.02 260 / 0.1);
+
+  /* Glass surfaces — used only for the title bar and overlays. */
+  --rx-glass: oklch(100% 0 0 / 0.72);
+  --rx-glass-line: oklch(100% 0 0 / 0.6);
+
+  /*
+   * Category hues.
+   *
+   * Six fixed hues, one per kind of file, kept apart in OKLCH so no two are
+   * confusable at a glance. They are not decoration: a results list of ten
+   * thousand rows is read by shape and colour long before anyone reads a file
+   * name, and a consistent hue per category is what makes that possible.
+   *
+   * Lightness and chroma are equal across all six, so none shouts louder than
+   * the others and the row does not develop a visual centre of gravity.
+   */
+  --rx-cat-image: oklch(62% 0.17 25);
+  --rx-cat-image-soft: oklch(95% 0.04 25);
+  --rx-cat-video: oklch(62% 0.17 300);
+  --rx-cat-video-soft: oklch(95% 0.04 300);
+  --rx-cat-audio: oklch(62% 0.17 200);
+  --rx-cat-audio-soft: oklch(95% 0.04 200);
+  --rx-cat-document: oklch(62% 0.17 255);
+  --rx-cat-document-soft: oklch(95% 0.04 255);
+  --rx-cat-archive: oklch(66% 0.16 85);
+  --rx-cat-archive-soft: oklch(95% 0.045 85);
+  --rx-cat-other: oklch(62% 0.12 155);
+  --rx-cat-other-soft: oklch(95% 0.04 155);
+
+  /*
+   * Gradients.
+   *
+   * Derived from the live accent rather than hard-coded, so switching accent
+   * recolours every gradient in the application at once.
+   */
+  --rx-gradient-accent: linear-gradient(135deg, var(--rx-accent) 0%, var(--rx-accent-alt) 100%);
+  --rx-gradient-surface: linear-gradient(
+    160deg,
+    var(--rx-surface) 0%,
+    color-mix(in oklch, var(--rx-accent) 4%, var(--rx-surface)) 100%
+  );
+  --rx-gradient-app:
+    radial-gradient(
+      1200px 600px at 15% -10%,
+      color-mix(in oklch, var(--rx-accent) 10%, transparent) 0%,
+      transparent 60%
+    ),
+    radial-gradient(
+      900px 500px at 95% 0%,
+      color-mix(in oklch, var(--rx-accent-alt) 8%, transparent) 0%,
+      transparent 55%
+    );
+
+  /* A coloured halo, used to lift the element the user is meant to act on. */
+  --rx-glow-accent: 0 6px 20px color-mix(in oklch, var(--rx-accent) 28%, transparent);
+
+  --rx-titlebar-height: 44px;
+  --rx-sidebar-width: 244px;
+  --rx-sidebar-width-collapsed: 68px;
+}
+
+.dark {
+  color-scheme: dark;
+
+  --rx-bg: oklch(17.5% 0.014 262);
+  --rx-bg-subtle: oklch(15% 0.014 262);
+  --rx-surface: oklch(21.5% 0.015 262);
+  --rx-surface-2: oklch(24.5% 0.016 262);
+  --rx-surface-3: oklch(28% 0.017 262);
+  --rx-line: oklch(30% 0.016 262);
+  --rx-line-strong: oklch(38% 0.018 262);
+
+  --rx-ink: oklch(96% 0.006 262);
+  --rx-ink-muted: oklch(74% 0.012 262);
+  --rx-ink-subtle: oklch(58% 0.014 262);
+  --rx-ink-inverse: oklch(18% 0.014 262);
+
+  --rx-success: oklch(74% 0.16 155);
+  --rx-success-soft: oklch(30% 0.06 155);
+  --rx-warning: oklch(80% 0.14 78);
+  --rx-warning-soft: oklch(32% 0.055 78);
+  --rx-danger: oklch(69% 0.19 22);
+  --rx-danger-soft: oklch(31% 0.07 22);
+  --rx-info: oklch(72% 0.13 245);
+  --rx-info-soft: oklch(30% 0.055 245);
+
+  --rx-shadow-sm: 0 1px 2px oklch(0% 0 0 / 0.4);
+  --rx-shadow-md: 0 2px 4px oklch(0% 0 0 / 0.35), 0 8px 20px oklch(0% 0 0 / 0.4);
+  --rx-shadow-lg: 0 4px 8px oklch(0% 0 0 / 0.35), 0 20px 48px oklch(0% 0 0 / 0.5);
+
+  --rx-cat-image: oklch(72% 0.16 25);
+  --rx-cat-image-soft: oklch(32% 0.06 25);
+  --rx-cat-video: oklch(72% 0.16 300);
+  --rx-cat-video-soft: oklch(32% 0.06 300);
+  --rx-cat-audio: oklch(72% 0.16 200);
+  --rx-cat-audio-soft: oklch(32% 0.06 200);
+  --rx-cat-document: oklch(72% 0.16 255);
+  --rx-cat-document-soft: oklch(32% 0.06 255);
+  --rx-cat-archive: oklch(76% 0.15 85);
+  --rx-cat-archive-soft: oklch(33% 0.06 85);
+  --rx-cat-other: oklch(72% 0.12 155);
+  --rx-cat-other-soft: oklch(32% 0.05 155);
+
+  /* Softer in the dark theme: a bright wash on a dark ground reads as glare. */
+  --rx-gradient-app:
+    radial-gradient(
+      1200px 600px at 15% -10%,
+      color-mix(in oklch, var(--rx-accent) 14%, transparent) 0%,
+      transparent 60%
+    ),
+    radial-gradient(
+      900px 500px at 95% 0%,
+      color-mix(in oklch, var(--rx-accent-alt) 10%, transparent) 0%,
+      transparent 55%
+    );
+  --rx-glow-accent: 0 6px 24px color-mix(in oklch, var(--rx-accent) 34%, transparent);
+
+  --rx-glass: oklch(21.5% 0.015 262 / 0.72);
+  --rx-glass-line: oklch(100% 0 0 / 0.08);
+}
+
+/*
+ * Accent palettes.
+ *
+ * `--rx-accent-contrast` is stored per accent rather than derived, because the
+ * amber accent needs dark text on its fill while the other four need light text
+ * — a computed value would fail WCAG on one of them.
+ */
+:root,
+[data-accent='blue'] {
+  --rx-accent: oklch(58% 0.19 255);
+  --rx-accent-alt: oklch(60% 0.2 295);
+  --rx-accent-hover: oklch(52% 0.2 255);
+  --rx-accent-soft: oklch(94% 0.04 255);
+  --rx-accent-ring: oklch(58% 0.19 255 / 0.35);
+  --rx-accent-contrast: oklch(99% 0 0);
+}
+
+[data-accent='violet'] {
+  --rx-accent: oklch(56% 0.22 296);
+  --rx-accent-alt: oklch(60% 0.21 335);
+  --rx-accent-hover: oklch(50% 0.23 296);
+  --rx-accent-soft: oklch(94% 0.045 296);
+  --rx-accent-ring: oklch(56% 0.22 296 / 0.35);
+  --rx-accent-contrast: oklch(99% 0 0);
+}
+
+[data-accent='emerald'] {
+  --rx-accent: oklch(58% 0.15 162);
+  --rx-accent-alt: oklch(62% 0.15 200);
+  --rx-accent-hover: oklch(52% 0.16 162);
+  --rx-accent-soft: oklch(94% 0.045 162);
+  --rx-accent-ring: oklch(58% 0.15 162 / 0.35);
+  --rx-accent-contrast: oklch(99% 0 0);
+}
+
+[data-accent='amber'] {
+  --rx-accent: oklch(76% 0.16 72);
+  --rx-accent-alt: oklch(70% 0.18 35);
+  --rx-accent-hover: oklch(70% 0.17 72);
+  --rx-accent-soft: oklch(95% 0.05 72);
+  --rx-accent-ring: oklch(76% 0.16 72 / 0.35);
+  --rx-accent-contrast: oklch(22% 0.03 72);
+}
+
+[data-accent='rose'] {
+  --rx-accent: oklch(60% 0.2 12);
+  --rx-accent-alt: oklch(60% 0.21 330);
+  --rx-accent-hover: oklch(54% 0.21 12);
+  --rx-accent-soft: oklch(94.5% 0.04 12);
+  --rx-accent-ring: oklch(60% 0.2 12 / 0.35);
+  --rx-accent-contrast: oklch(99% 0 0);
+}
+
+.dark[data-accent='blue'],
+.dark:not([data-accent]) {
+  --rx-accent: oklch(70% 0.16 255);
+  --rx-accent-hover: oklch(76% 0.15 255);
+  --rx-accent-soft: oklch(30% 0.06 255);
+  --rx-accent-contrast: oklch(16% 0.02 255);
+}
+
+.dark[data-accent='violet'] {
+  --rx-accent: oklch(70% 0.18 296);
+  --rx-accent-hover: oklch(76% 0.17 296);
+  --rx-accent-soft: oklch(30% 0.07 296);
+  --rx-accent-contrast: oklch(16% 0.02 296);
+}
+
+.dark[data-accent='emerald'] {
+  --rx-accent: oklch(72% 0.14 162);
+  --rx-accent-hover: oklch(78% 0.13 162);
+  --rx-accent-soft: oklch(29% 0.06 162);
+  --rx-accent-contrast: oklch(16% 0.02 162);
+}
+
+.dark[data-accent='amber'] {
+  --rx-accent: oklch(80% 0.15 72);
+  --rx-accent-hover: oklch(85% 0.14 72);
+  --rx-accent-soft: oklch(31% 0.06 72);
+  --rx-accent-contrast: oklch(18% 0.03 72);
+}
+
+.dark[data-accent='rose'] {
+  --rx-accent: oklch(72% 0.17 12);
+  --rx-accent-hover: oklch(78% 0.16 12);
+  --rx-accent-soft: oklch(30% 0.07 12);
+  --rx-accent-contrast: oklch(16% 0.02 12);
+}
+
+@theme inline {
+  --color-app: var(--rx-bg);
+  --color-app-subtle: var(--rx-bg-subtle);
+  --color-surface: var(--rx-surface);
+  --color-surface-2: var(--rx-surface-2);
+  --color-surface-3: var(--rx-surface-3);
+  --color-line: var(--rx-line);
+  --color-line-strong: var(--rx-line-strong);
+
+  --color-ink: var(--rx-ink);
+  --color-ink-muted: var(--rx-ink-muted);
+  --color-ink-subtle: var(--rx-ink-subtle);
+  --color-ink-inverse: var(--rx-ink-inverse);
+
+  --color-accent: var(--rx-accent);
+  --color-accent-hover: var(--rx-accent-hover);
+  --color-accent-soft: var(--rx-accent-soft);
+  --color-accent-contrast: var(--rx-accent-contrast);
+
+  --color-success: var(--rx-success);
+  --color-success-soft: var(--rx-success-soft);
+  --color-warning: var(--rx-warning);
+  --color-warning-soft: var(--rx-warning-soft);
+  --color-danger: var(--rx-danger);
+  --color-danger-soft: var(--rx-danger-soft);
+  --color-info: var(--rx-info);
+  --color-info-soft: var(--rx-info-soft);
+
+  --color-cat-image: var(--rx-cat-image);
+  --color-cat-image-soft: var(--rx-cat-image-soft);
+  --color-cat-video: var(--rx-cat-video);
+  --color-cat-video-soft: var(--rx-cat-video-soft);
+  --color-cat-audio: var(--rx-cat-audio);
+  --color-cat-audio-soft: var(--rx-cat-audio-soft);
+  --color-cat-document: var(--rx-cat-document);
+  --color-cat-document-soft: var(--rx-cat-document-soft);
+  --color-cat-archive: var(--rx-cat-archive);
+  --color-cat-archive-soft: var(--rx-cat-archive-soft);
+  --color-cat-other: var(--rx-cat-other);
+  --color-cat-other-soft: var(--rx-cat-other-soft);
+
+  --color-accent-alt: var(--rx-accent-alt);
+
+  --shadow-glow: var(--rx-glow-accent);
+
+  --color-glass: var(--rx-glass);
+  --color-glass-line: var(--rx-glass-line);
+
+  --shadow-card: var(--rx-shadow-sm);
+  --shadow-raised: var(--rx-shadow-md);
+  --shadow-overlay: var(--rx-shadow-lg);
+
+  --font-sans:
+    'Segoe UI Variable Display', 'Segoe UI', system-ui, -apple-system, 'Inter', sans-serif;
+  --font-mono: 'Cascadia Code', 'Consolas', ui-monospace, 'SF Mono', monospace;
+
+  --radius-card: 0.75rem;
+
+  --animate-fade-in: fade-in 160ms ease-out;
+  --animate-slide-up: slide-up 220ms cubic-bezier(0.22, 1, 0.36, 1);
+  --animate-scale-in: scale-in 140ms cubic-bezier(0.22, 1, 0.36, 1);
+  --animate-shimmer: shimmer 1.6s linear infinite;
+}
+
+/*
+ * Colour utilities.
+ *
+ * Written as classes rather than Tailwind arbitrary values because each one
+ * composes several custom properties, and repeating that at a dozen call sites
+ * is how a design system drifts.
+ */
+@utility gradient-accent {
+  background-image: var(--rx-gradient-accent);
+}
+
+@utility gradient-surface {
+  background-image: var(--rx-gradient-surface);
+}
+
+/*
+ * The application ground.
+ *
+ * A pair of very wide, very soft accent washes in the top corners. At this size
+ * and opacity they read as depth rather than as colour — the page still looks
+ * white, but it stops looking flat, and it picks up the user's chosen accent
+ * without tinting any text or control.
+ */
+@utility app-canvas {
+  background-image: var(--rx-gradient-app);
+  background-attachment: fixed;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes shimmer {
+  from {
+    background-position: -200% 0;
+  }
+  to {
+    background-position: 200% 0;
+  }
+}
+
+@layer base {
+  * {
+    border-color: var(--rx-line);
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--rx-bg);
+    color: var(--rx-ink);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    /*
+     * The window frame is custom-drawn, so the document must never scroll or
+     * rubber-band; individual panes own their own scroll containers.
+     */
+    overflow: hidden;
+    overscroll-behavior: none;
+    /* Chrome text selection anywhere in the chrome looks broken in a desktop
+       app; it is re-enabled explicitly on content that should be copyable. */
+    user-select: none;
+    cursor: default;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--rx-accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Focus rings are essential for keyboard users and noise for mouse users;
+     :focus-visible already makes that distinction, so suppress the fallback. */
+  :focus:not(:focus-visible) {
+    outline: none;
+  }
+
+  ::selection {
+    background-color: var(--rx-accent-soft);
+    color: var(--rx-ink);
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--rx-line-strong);
+    border: 3px solid transparent;
+    border-radius: 9999px;
+    background-clip: content-box;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--rx-ink-subtle);
+  }
+
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+}
+
+@layer utilities {
+  /* Regions the OS should treat as the window's title bar for dragging. */
+  .app-drag {
+    -webkit-app-region: drag;
+  }
+
+  .app-no-drag {
+    -webkit-app-region: no-drag;
+  }
+
+  .selectable {
+    user-select: text;
+    cursor: text;
+  }
+
+  .glass {
+    background-color: var(--rx-glass);
+    backdrop-filter: blur(16px) saturate(180%);
+    -webkit-backdrop-filter: blur(16px) saturate(180%);
+  }
+
+  .text-numeric {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum';
+  }
+}
+
+/*
+ * Motion.
+ *
+ * Honours both the OS signal and the in-app "reduce motion" setting, which is
+ * set as a class on <html>. Transitions are collapsed rather than removed so
+ * layout that depends on transitionend still settles.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+.reduce-motion *,
+.reduce-motion *::before,
+.reduce-motion *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+/*
+ * Compact density.
+ *
+ * Tightens the chrome so more rows fit on a 1080p laptop panel — the display
+ * most recovery work actually happens on. Row heights inside virtualised lists
+ * are *not* set here: the virtualiser needs the height as a number in JavaScript
+ * to compute offsets, so those components read the setting directly.
+ */
+.density-compact {
+  --rx-titlebar-height: 38px;
+  --rx-sidebar-width: 224px;
+  font-size: 13px;
+}
+
+.density-compact .rx-section {
+  padding-block: 0.5rem;
+}

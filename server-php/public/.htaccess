@@ -1,0 +1,38 @@
+# BEGIN RecoverX licensing
+# Routes the RecoverX licence server inside this website. If this folder
+# already had a .htaccess, keep its own rules BELOW the END line.
+
+Options -Indexes
+
+# Anything that does not exist gets the website's own 404 page.
+ErrorDocument 404 /404.html
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+
+  # Some hosts withhold the Authorization header from PHP; pass it through
+  # for the admin API's bearer token.
+  RewriteCond %{HTTP:Authorization} .
+  RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+  # The licence API: /healthz and everything under /v1/ go to one script.
+  RewriteRule ^v1/index\.php$ - [L]
+  RewriteRule ^healthz$ v1/index.php [L,QSA]
+  RewriteRule ^v1(/.*)?$ v1/index.php [L,QSA]
+</IfModule>
+
+# Never serve dotfiles, databases, keys or logs, wherever they end up.
+<FilesMatch "(^\.(?!well-known)|\.(sqlite|sqlite3|db|db-wal|db-shm|key|pem|log|jsonl|lock|bak)$|^config\.(local\.)?php$|^setup-code\.txt$)">
+  <IfModule mod_authz_core.c>
+    Require all denied
+  </IfModule>
+  <IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+  </IfModule>
+</FilesMatch>
+
+<IfModule mod_headers.c>
+  Header always set X-Content-Type-Options "nosniff"
+</IfModule>
+# END RecoverX licensing

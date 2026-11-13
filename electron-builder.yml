@@ -1,0 +1,156 @@
+appId: in.appsgain.recoverx
+productName: RecoverX
+copyright: Copyright © 2026 Appsgain Technologies. All Rights Reserved.
+
+directories:
+  buildResources: build
+  output: release/${version}
+
+# Only the compiled bundles ship. Source maps are excluded from the installer so
+# the shipped payload stays small; they are uploaded to the crash-report symbol
+# store separately during release (see docs/RELEASE.md).
+files:
+  - out/**/*
+  - package.json
+  - "!**/*.map"
+  - "!**/{.eslintrc,.editorconfig,.prettierrc,tsconfig*.json}"
+  - "!**/{test,tests,__tests__,powered-test,example,examples,docs,doc}/**"
+  - "!**/*.{md,markdown,ts,tsx,map}"
+
+asar: true
+
+# RecoverX ships zero native addons: SQLite comes from `node:sqlite`, built
+# into the Node runtime Electron already embeds. Nothing needs to be unpacked
+# from the asar archive, and no ABI rebuild step is required — which is also why
+# a C++ toolchain is not a prerequisite for building this project.
+npmRebuild: false
+
+compression: maximum
+removePackageScripts: true
+removePackageKeywords: true
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: build/icon.ico
+  # Spelled out rather than built from ${productName}, and with no spaces: this
+  # is the name the file keeps everywhere — the update feed's latest.yml, the
+  # Store staging copy (scripts/package-store.mjs), the website's download
+  # path and docs/MICROSOFT-STORE.md — and a product name with a space in it
+  # would quietly break each of those.
+  artifactName: RecoverX-Setup-${version}-${arch}.${ext}
+  # Raw block-device access (\\.\PhysicalDriveN) and volume locking both require
+  # an elevated token. Requesting elevation up-front is the same model every
+  # commercial recovery suite uses, and it avoids a half-initialised session
+  # where the scanner silently sees no drives.
+  requestedExecutionLevel: requireAdministrator
+  legalTrademarks: RecoverX
+
+  # --- Code signing --------------------------------------------------------
+  #
+  # The Microsoft Store's MSI/EXE route (Store Policy 10.2.9) requires the
+  # installer AND every PE file inside it to carry an Authenticode signature
+  # that chains to a Microsoft Trusted Root Program CA. electron-builder signs
+  # only `.exe` files by default, which leaves six of Electron's DLLs unsigned
+  # and fails that rule.
+  #
+  # The list names those DLLs explicitly rather than using a blanket ".dll":
+  #
+  #  - d3dcompiler_47.dll and dxil.dll already carry Microsoft's own signature.
+  #    Re-signing them would replace "Microsoft Windows" with our name on
+  #    Microsoft's binaries, which is misleading and gains nothing.
+  #  - A "!d3dcompiler_47.dll" exclusion does not work: shouldSignFile() in
+  #    app-builder-lib checks positive patterns first, so ".dll" would match and
+  #    the negation would never be reached.
+  #
+  # Checked against Electron 43.2.0 with Get-AuthenticodeSignature: these six
+  # are NotSigned in a stock build, the two above are Valid (Microsoft). After
+  # an Electron upgrade, `npm run package:store` fails if a new unsigned PE file
+  # appears, which is the prompt to add it here.
+  #
+  # `.node` covers native addons. The project ships none today (SQLite is
+  # node:sqlite), but one added later must be signed too, and no Microsoft-
+  # signed file uses that extension.
+  #
+  # Executables (.exe) are signed regardless of this list: RecoverX.exe,
+  # resources\elevate.exe, the uninstaller and the installer itself.
+  signExts:
+    - ffmpeg.dll
+    - libEGL.dll
+    - libGLESv2.dll
+    - vk_swiftshader.dll
+    - vulkan-1.dll
+    - dxcompiler.dll
+    - .node
+
+  # Deliberately no certificate here, so `npm run package:win` still produces
+  # an unsigned development build on any machine. The certificate is supplied
+  # per build, never committed:
+  #
+  #  - CSC_LINK / CSC_KEY_PASSWORD — a .pfx file. Legacy: since June 2023 CAs
+  #    issue code-signing keys only on hardware (USB token or cloud HSM), so a
+  #    new certificate cannot be exported to a .pfx at all.
+  #  - WIN_CSC_SUBJECT_NAME or WIN_CSC_SHA1 — a token or HSM certificate visible
+  #    in the Windows certificate store. scripts/package-store.mjs maps these to
+  #    `certificateSubjectName` / `certificateSha1`, and signtool signs through
+  #    the vendor's CSP/KSP. The token's PIN prompt is the vendor driver's.
+  #  - WIN_SIGN_HOOK — a module that signs one file, for cloud HSMs whose
+  #    tooling is not signtool (passed through as `signtoolOptions.sign`).
+  #
+  # See docs/BUILDING.md#code-signing.
+  signtoolOptions:
+    # SHA-256 only. electron-builder's default dual-signs SHA-1 + SHA-256 for
+    # Windows 7, which this product does not support. One signature per file
+    # also halves the operations on a hardware token — and the PIN prompts on
+    # tokens that ask for every signature.
+    signingHashAlgorithms:
+      - sha256
+    # RFC 3161 timestamping: without a timestamp a signature stops validating
+    # the day the certificate expires, and with one it stays valid for the life
+    # of the binary. DigiCert's public TSA accepts any CA's signatures; swap it
+    # for your CA's own TSA if you prefer.
+    rfc3161TimeStampServer: http://timestamp.digicert.com
+
+nsis:
+  oneClick: false
+  perMachine: true
+  allowElevation: true
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: RecoverX
+  uninstallDisplayName: ${productName} ${version}
+  license: LICENSE
+  # User settings, licence activation state and recovery history live in the
+  # SQLite database under %APPDATA%. Wiping them on uninstall would destroy a
+  # paid activation record, so the data directory is preserved by default.
+  #
+  # MUST stay false. Despite its documentation, this switch is not limited to
+  # one-click installers: app-builder-lib 26.15.3 defines
+  # DELETE_APP_DATA_ON_UNINSTALL whenever it is true, and uninstaller.nsh then
+  # deletes %APPDATA%\RecoverX on EVERY uninstall that is not an update —
+  # silent /S ones included, i.e. every Store, Settings or deployment-tool
+  # uninstall — with no prompt. That is exactly what build/installer.nsh exists
+  # to prevent.
+  deleteAppDataOnUninstall: false
+  # Store Policy 10.2.7 asks for a clean uninstall, so build/installer.nsh
+  # offers — on an interactive uninstall only, defaulting to No — to remove that
+  # data as well. Never in a silent uninstall and never during an update.
+  include: build/installer.nsh
+  differentialPackage: true
+
+# electron-updater's feed. The Microsoft Store EXE listing keeps it: Store-
+# installed copies of an MSI/EXE app update themselves, and the Store never
+# pushes updates for that route. electron-builder.msix.yml removes it, because a
+# Store-managed MSIX package must not carry a second updater.
+#
+# Served as static files from the product's own host, beside the website (see
+# website/README.md). Every installed copy keeps this address for life, so it
+# must stay on a domain the vendor controls.
+publish:
+  - provider: generic
+    url: https://recoverx.snapkio.com/updates/win/${channel}
+    channel: latest
+    useMultipleRangeRequest: true

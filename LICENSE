@@ -1,0 +1,71 @@
+RecoverX — End User Licence Agreement (Commercial)
+Copyright © 2026 Appsgain Technologies Private Limited. All rights reserved.
+
+Licensor: Appsgain Technologies Private Limited, 22, Appsgain Technologies
+Building, Goraul Block, Katarmala Road, Adampur, Hajipur, Vaishali,
+Bihar 844114, India ("Appsgain Technologies").
+
+1. GRANT OF LICENCE
+   Subject to payment of the applicable fees and to the terms below, Appsgain
+   Technologies grants you a non-exclusive, non-transferable licence to install
+   and use the RecoverX software ("the Software") in accordance with your
+   edition:
+
+     Free          No fee. Personal, non-commercial use, and evaluation of the
+                   Software by anyone. Recovery is capped as described below.
+     Professional  Unlimited recovery on one computer at a time, for personal,
+                   non-commercial use.
+     Business      Unlimited recovery on up to three computers at a time, for
+                   use, including commercial use, inside one organisation.
+     Technician    Unlimited recovery on any number of computers, including
+                   your clients' computers, to provide data-recovery services.
+     Enterprise    Volume licensing under a separately negotiated agreement.
+
+   The Free edition recovers at most 1 GiB (1,073,741,824 bytes) of data in
+   total on each computer. That total counts every recovery made on the
+   computer, including any made while a paid licence was active on it.
+
+   A paid licence runs for the term stated when it is bought, one year unless
+   agreed otherwise, and may be renewed. If it ends without being renewed, the
+   Software continues to work as the Free edition.
+
+2. RESTRICTIONS
+   You may not reverse engineer, decompile or disassemble the Software except to
+   the extent that such activity is expressly permitted by applicable law; sell,
+   rent, lease or sublicense the Software; or remove any proprietary notices.
+
+3. THIRD-PARTY COMPONENTS
+   The Software incorporates third-party open-source components which remain
+   licensed under their own terms, as its About screen also states. The licence
+   texts of Electron and Chromium are installed with the Software, as
+   LICENSE.electron.txt and LICENSES.chromium.html in its installation folder.
+   A complete list of the components, their licences and their copyright
+   notices is kept in THIRD-PARTY-NOTICES.md and is available on request from
+   info@appsgain.in. Nothing in this agreement limits your rights under those
+   licences.
+
+4. DATA AND PRIVACY
+   The Software performs read-only analysis of the storage devices you select.
+   It does not transmit the contents of recovered files, and it sends no
+   diagnostic or usage data. What it does send, to activate a licence and to
+   check for updates, is described in the privacy policy at
+   https://recoverx.snapkio.com/privacy/.
+
+5. NO WARRANTY
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. DATA RECOVERY IS
+   INHERENTLY UNCERTAIN; NO GUARANTEE IS MADE THAT ANY PARTICULAR FILE CAN BE
+   RECOVERED OR THAT A RECOVERED FILE WILL BE INTACT.
+
+6. LIMITATION OF LIABILITY
+   IN NO EVENT SHALL APPSGAIN TECHNOLOGIES PRIVATE LIMITED BE LIABLE FOR ANY
+   CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+   OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE
+   OR OTHER DEALINGS IN THE SOFTWARE, INCLUDING ANY LOSS OF DATA.
+
+7. TERMINATION
+   This licence terminates automatically if you breach any of its terms. On
+   termination you must cease all use of the Software and remove all copies.
+
+Contact: info@appsgain.in

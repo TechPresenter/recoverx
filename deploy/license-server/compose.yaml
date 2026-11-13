@@ -1,0 +1,66 @@
+# RecoverX licence server — example Docker Compose deployment.
+#
+#   docker compose -f deploy/license-server/compose.yaml up -d --build
+#
+# Before the first start:
+#   1. Put the signing key at ./secrets/license-signing-key.pem (next to this
+#      file), readable by uid 1000. The repository's .gitignore already
+#      excludes that file name.
+#   2. Create ./.env.licensing.local from the variables below. It holds the
+#      admin token, so it is named to match the .gitignore pattern
+#      `.env.*.local` — keep the `.local` suffix if you rename it, or the file
+#      becomes committable. (Plain `.env.*` is NOT ignored by the repository.)
+#      The image's .dockerignore keeps it out of the build context as well.
+#
+# HTTPS is terminated by a reverse proxy on the host (Caddy or nginx; see
+# docs/LICENSE-SERVER.md). The port is published on loopback only, so the
+# server is unreachable except through that proxy.
+
+services:
+  licensing:
+    build:
+      context: ../..
+      dockerfile: deploy/license-server/Dockerfile
+    image: recoverx-license-server
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8787:8787"
+    environment:
+      LICENSE_SIGNING_KEY_FILE: /run/secrets/license_signing_key
+      # Behind the host's reverse proxy, which overwrites X-Forwarded-For.
+      LICENSE_TRUST_PROXY: "true"
+    env_file:
+      # RECOVERX_LICENSE_PUBLIC_KEY=<the value your desktop builds embed>
+      # LICENSE_ADMIN_TOKEN=<at least 32 random characters, or leave unset>
+      # Optional — how often a customer may move a licence between computers
+      # themselves before support has to (see docs/LICENSE-SERVER.md). Keep it
+      # at 1000000 until the desktop build that reads a 409 from deactivation
+      # has rolled out ("Turning it on: the application first"):
+      # LICENSE_SELF_RELEASE_LIMIT=4
+      # LICENSE_SELF_RELEASE_WINDOW_DAYS=365
+      # Optional — days the activation history, IP addresses included, is
+      # kept. 395 (13 months) is what the privacy policy promises; it must be
+      # at least the window above:
+      # LICENSE_EVENT_RETENTION_DAYS=395
+      - ./.env.licensing.local
+    # The request log on stdout carries client addresses as well. Docker's
+    # default keeps it forever; this caps it by size. Docker cannot rotate by
+    # age, so on a very quiet server ship the log to something that can if the
+    # 13-month promise must hold to the day (docs/LICENSE-SERVER.md,
+    # "Event-log retention").
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "5"
+    secrets:
+      - license_signing_key
+    volumes:
+      - licensing-data:/data
+
+secrets:
+  license_signing_key:
+    file: ./secrets/license-signing-key.pem
+
+volumes:
+  licensing-data:

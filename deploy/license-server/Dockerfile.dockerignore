@@ -1,0 +1,27 @@
+# Build context for deploy/license-server/Dockerfile.
+#
+# BuildKit reads `<Dockerfile name>.dockerignore` next to the Dockerfile in
+# preference to a root .dockerignore, so this applies only to the licence
+# server image.
+#
+# Allow-list: everything is excluded, then exactly what the build reads is let
+# back in. The point is less the size of the context than what is NOT in it —
+# the signing key, .env files and release artefacts never reach the builder,
+# so they cannot end up in a layer by accident.
+
+*
+
+!package.json
+!package-lock.json
+!.npmrc
+!tsconfig*.json
+!server.vite.config.ts
+!src/shared/**
+!src/server/**
+!src/main/database/sqlite.ts
+
+# Belt and braces: never, even if a rule above is widened later.
+**/*.pem
+**/*.key
+**/.env
+**/.env.*

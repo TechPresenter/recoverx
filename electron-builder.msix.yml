@@ -1,0 +1,106 @@
+# RecoverX — Microsoft Store MSIX package (product "RecoverX Data Recovery",
+# Store ID 9P7VHFQ36L0B; chosen by the vendor on 13 Nov 2026 as the free route,
+# since Microsoft signs MSIX packages itself).
+#
+# !! `allowElevation` is a RESTRICTED capability. It is requested inside the
+# !! submission: Partner Center → Submission options → Restricted capabilities,
+# !! with a detailed justification (docs/store/certification-notes.md). Microsoft
+# !! approves it "under strict criteria" during certification; a refusal fails
+# !! the submission. Without the capability an MSIX app that requests elevation
+# !! does not launch at all.
+#
+# The signed NSIS installer (electron-builder.yml, MSI/EXE product "RecoverX")
+# remains the fallback route and the website download. See
+# docs/MICROSOFT-STORE.md, section 11.
+#
+# Build it with:
+#
+#   npm run icon && npm run build && node scripts/package-store.mjs --msix
+#
+# which supplies the package identity from Partner Center and refuses to run
+# with any code-signing variables set (see below).
+#
+# How this file combines with the parent — verified in app-builder-lib 26.15.3
+# (util/config/config.js and builder-util-runtime deepAssign):
+#
+#  - Objects are deep-merged, child over parent.
+#  - ARRAYS ARE CONCATENATED, not replaced. A `target:` list here would be
+#    appended to the parent's `[nsis]` and build both. That is why `target`
+#    below is a plain string: a scalar replaces whatever the parent had.
+#  - An explicit `null` removes the parent's value. `publish: null` is the only
+#    way to drop the parent's update feed.
+#  - Programmatic config passed to electron-builder's build() is merged on top
+#    of this file before the parent is applied, with the same rules.
+
+extends: ./electron-builder.yml
+
+win:
+  # Scalar, not a list — see the merge note above. x64 only, matching the
+  # EXE route; the architecture is passed explicitly by package-store.mjs.
+  target: appx
+
+# No update feed. A Store-installed MSIX is updated by the Store; with this
+# null, electron-builder writes no app-update.yml into the package, and the
+# update service stands aside anyway when process.windowsStore is true. A
+# second updater in a Store package would try to install the NSIS build beside
+# it.
+publish: null
+
+toolsets:
+  # makeappx/makepri from the Windows 10.0.26100 SDK bundle. The default
+  # winCodeSign-2.6.0 bundle dates from 2020 and predates the manifest schema
+  # this package targets (MaxVersionTested 10.0.26100.0).
+  winCodeSign: "1.1.0"
+
+appx:
+  # Package identity — Identity/Name, Identity/Publisher and
+  # PublisherDisplayName — is NOT set here. It must be copied exactly (it is
+  # case-sensitive) from Partner Center → Product management → Product
+  # identity, and package-store.mjs reads it from RECOVERX_STORE_IDENTITY_NAME,
+  # RECOVERX_STORE_PUBLISHER and RECOVERX_STORE_PUBLISHER_DISPLAY_NAME.
+
+  # Explicit rather than derived from package.json "name": an npm name may
+  # contain a hyphen, which is not legal in an Application Id, and the Start
+  # menu entry and tile must not change name when the npm package does.
+  applicationId: RecoverX
+  # Must equal a name reserved for the MSIX product in Partner Center, which
+  # checks Package/Properties/DisplayName against them. "RecoverX" itself is
+  # reserved by the earlier EXE/MSI product (Partner Center refused to move it,
+  # 13 Nov 2026), so the MSIX product — Store ID 9P7VHFQ36L0B — is "RecoverX
+  # Data Recovery". Change this only together with that product's names.
+  displayName: RecoverX Data Recovery
+
+  # runFullTrust is added by electron-builder unconditionally (every Electron
+  # app is a full-trust desktop app). allowElevation lets the packaged
+  # executable keep `requestedExecutionLevel: requireAdministrator`, inherited
+  # from the parent — raw disk access needs it. This is the restricted
+  # capability that needs Microsoft's approval.
+  capabilities:
+    - allowElevation
+
+  # allowElevation exists from Windows 10 1809 (17763). The product supports
+  # Windows 10 21H2 and later, so the floor is 19044 — which also stops the
+  # Store offering the package to machines the app was never tested on.
+  minVersion: 10.0.19044.0
+  maxVersionTested: 10.0.26100.0
+
+  # English only, deliberately. Partner Center requires a Store listing in
+  # every language a package declares, so add "es-ES" here only together with
+  # a Spanish listing (the app itself already ships a Spanish UI).
+  languages:
+    - en-US
+
+  # Transparent lets Windows 10 draw tiles in the user's accent colour; the
+  # tile art in build/appx carries the product's own gradient plate.
+  backgroundColor: transparent
+  showNameOnTiles: true
+
+  # Store version rules: four parts, the last must be 0. Leaving the build
+  # number out keeps 1.2.3 → 1.2.3.0 rather than appending a CI build number.
+  setBuildNumber: false
+
+  # Store-managed updates only (see `publish: null`).
+  electronUpdaterAware: false
+
+  # No spaces: the file is uploaded by hand and referenced in scripts.
+  artifactName: RecoverX-${version}-${arch}.${ext}

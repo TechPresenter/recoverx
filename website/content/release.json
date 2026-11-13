@@ -1,0 +1,10 @@
+{
+  "//": "The installer offered on /download/. Written by `node website/release.mjs <installer.exe>` — do not edit the hash or size by hand. `null` until the first installer has been uploaded to /downloads/win/<version>/; the page then says a release is being prepared.",
+  "installer": {
+    "version": "1.0.0",
+    "fileName": "RecoverX-Setup-1.0.0-x64.exe",
+    "sha256": "034abd22ccc26223d723173ffffcb1375c8d1a05dde6f97df765ef192ad050bf",
+    "size": 100764871,
+    "date": "2026-11-13"
+  }
+}

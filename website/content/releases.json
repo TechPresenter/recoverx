@@ -1,0 +1,22 @@
+{
+  "//": "Release notes for /releases/, newest first. Add an entry before publishing a version; set its date (YYYY-MM-DD) on the day it is uploaded. An entry with \"date\": null is shown as not yet released. Notes are plain sentences: they are escaped, not interpreted. Every note must be true of the code that ships — see website/README.md.",
+  "releases": [
+    {
+      "version": "1.0.0",
+      "date": "2026-11-13",
+      "title": "First release",
+      "notes": [
+        "First public release, for Windows 10 version 21H2 or later and Windows 11 on 64-bit (x64) PCs.",
+        "Quick scan of NTFS, FAT12, FAT16, FAT32 and exFAT volumes recovers deleted files with their original names, folders and dates. On FAT, a short name such as DSC_0412.JPG loses its first letter, which is shown as _ (_SC_0412.JPG).",
+        "Deep scan recognises 21 file types by their content, after a format, on drives Windows shows as RAW and on damaged file systems.",
+        "Lost partitions can be found from surviving file-system headers and scanned, without rewriting the partition table.",
+        "Preview, a recoverability rating and a content check for every result before you recover it.",
+        "Recovered files are always saved to a different drive; the drive you recover from is only ever read.",
+        "Drive health from SMART data and Windows' storage reliability counters.",
+        "Free edition with up to 1 GB of recovery; Professional, Business, Technician and Enterprise licences, activated online or offline.",
+        "English and Spanish; light and dark themes.",
+        "This first build is not yet code-signed, so Windows SmartScreen may say \"Windows protected your PC\". Choose More info, then Run anyway, and compare the installer's SHA-256 with the one on the download page. A signed build will follow and will reach existing installations as an update."
+      ]
+    }
+  ]
+}

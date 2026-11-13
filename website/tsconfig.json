@@ -1,0 +1,25 @@
+{
+  "//": "Type-checks the website build (plain Node ESM with JSDoc types) at the repository's strictness, without compiling it: `npx tsc -p website/tsconfig.json`. Standalone rather than extending tsconfig.base.json, whose composite/bundler settings are for the TypeScript projects. ESLint's typed rules find the files through this config too.",
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "types": ["node"],
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+
+    "strict": true,
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "useUnknownInCatchVariables": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": ["*.mjs", "lib/**/*.mjs", "tests/**/*.mjs"]
+}

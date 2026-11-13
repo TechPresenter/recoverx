@@ -1,0 +1,5 @@
+{
+  "//": "Solution-style root config. It emits nothing itself; the two leaf projects below own their own compilation domains (Node/Electron vs. browser).",
+  "files": [],
+  "references": [{ "path": "./tsconfig.node.json" }, { "path": "./tsconfig.web.json" }]
+}
