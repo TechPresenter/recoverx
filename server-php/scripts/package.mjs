@@ -60,6 +60,7 @@ function main() {
     'public_html/v1/index.php',
     'public_html/admin/index.php',
     'public_html/setup/index.php',
+    'public_html/order/index.php',
   ]) {
     if (!entries.some((entry) => entry.name === required)) {
       console.error(`The package would be missing ${required}; refusing to write it.`)

@@ -5,11 +5,14 @@ declare(strict_types=1);
 namespace RecoverX\Licensing\Mail;
 
 /**
- * Sends a plain-text e-mail through Amazon SES (API v2, `SendEmail`), signed
- * with the EC2 server's role credentials.
+ * Sends an e-mail through Amazon SES (API v2, `SendEmail`, "Simple" content),
+ * signed with the EC2 server's role credentials.
  *
- * Plain text only: a licence key and four lines of instructions need no HTML,
- * and plain text cannot carry a tracking pixel or hide a link.
+ * Every message has a complete plain-text part: it is what text-only clients
+ * show and what spam filters compare. An HTML part (built with EmailHtml) may
+ * go with it as the styled view of the same words; SES then builds
+ * multipart/alternative. Neither part loads anything remote, so there is no
+ * tracking pixel and no image to block.
  */
 final class SesMailer
 {
@@ -59,36 +62,62 @@ final class SesMailer
     }
 
     /**
-     * Send one message to one address.
+     * Send one message to one or more addresses. `$replyTo` overrides the
+     * configured Reply-To for this message (an order notification is answered
+     * to the customer, not to ourselves). `$html`, when given, goes alongside
+     * `$text` as the HTML alternative (Body.Html next to Body.Text, both
+     * UTF-8); `$text` must still say everything on its own.
      *
+     * @param string|list<string> $to
+     * @param null|string $html a whole HTML document, every value in it escaped (EmailHtml)
      * @return string the SES message id
      */
-    public function send(string $to, string $subject, string $text): string
+    public function send(string|array $to, string $subject, string $text, ?string $replyTo = null, ?string $html = null): string
     {
-        if (!self::isAddress($to)) {
-            throw new MailError('"' . $to . '" is not an e-mail address that can be sent to.');
+        $recipients = is_array($to) ? array_values($to) : [$to];
+        if ($recipients === [] || count($recipients) > 50) {
+            throw new MailError('An e-mail needs between 1 and 50 recipients.');
+        }
+        foreach ($recipients as $address) {
+            if (!is_string($address) || !self::isAddress($address)) {
+                throw new MailError('"' . (is_string($address) ? $address : gettype($address)) . '" is not an e-mail address that can be sent to.');
+            }
+        }
+
+        $reply = $replyTo ?? $this->replyTo;
+        if ($reply !== null && !self::isAddress($reply)) {
+            throw new MailError('"' . $reply . '" is not an e-mail address replies can go to.');
+        }
+
+        if (preg_match('/[\x00-\x1F\x7F]/', $subject) === 1) {
+            throw new MailError('An e-mail subject cannot contain line breaks or control characters.');
+        }
+
+        $body = ['Text' => ['Data' => $text, 'Charset' => 'UTF-8']];
+        if ($html !== null && $html !== '') {
+            $body['Html'] = ['Data' => $html, 'Charset' => 'UTF-8'];
         }
 
         $payload = [
             'FromEmailAddress' => $this->fromLine(),
-            'Destination' => ['ToAddresses' => [$to]],
+            'Destination' => ['ToAddresses' => $recipients],
             'Content' => ['Simple' => [
                 'Subject' => ['Data' => $subject, 'Charset' => 'UTF-8'],
-                'Body' => ['Text' => ['Data' => $text, 'Charset' => 'UTF-8']],
+                'Body' => $body,
             ]],
         ];
-        if ($this->replyTo !== null) {
-            $payload['ReplyToAddresses'] = [$this->replyTo];
+        if ($reply !== null) {
+            $payload['ReplyToAddresses'] = [$reply];
         }
 
-        $body = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+        $json = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
         $host = "email.{$this->region}.amazonaws.com";
         $headers = SigV4::sign(
             'POST',
             self::PATH,
             '',
             ['Host' => $host, 'Content-Type' => 'application/json'],
-            $body,
+            $json,
             $this->region,
             'ses',
             ($this->credentials)(),
@@ -96,7 +125,7 @@ final class SesMailer
         );
 
         try {
-            $response = ($this->http)('POST', "https://{$host}" . self::PATH, $headers, $body, 15.0);
+            $response = ($this->http)('POST', "https://{$host}" . self::PATH, $headers, $json, 15.0);
         } catch (MailError $error) {
             throw new MailError("Amazon SES could not be reached ({$error->getMessage()}). Nothing was sent; try again in a minute.", 0, $error);
         }

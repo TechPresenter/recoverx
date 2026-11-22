@@ -16,6 +16,7 @@ use RecoverX\Licensing\LicenseKey;
 use RecoverX\Licensing\Mail\LicenceMail;
 use RecoverX\Licensing\Mail\MailError;
 use RecoverX\Licensing\RateLimiter;
+use RecoverX\Licensing\Store;
 use RecoverX\Licensing\Web\Html;
 use RecoverX\Licensing\Web\Session;
 
@@ -27,7 +28,9 @@ use RecoverX\Licensing\Web\Session;
  * throttling per address and overall (stored in the database, since PHP keeps
  * nothing between requests), and an idle timeout. Every action goes through
  * the same `Authority` the JSON API uses, and is recorded in the licence's
- * history with the actor `admin-panel`.
+ * history with the actor `admin-panel`. Orders from the website's form
+ * (`Order\OrderForm`) are listed, followed up and deleted here too; creating
+ * licences with an order's reference marks it licensed.
  *
  * The password is asked for again before the signing key is downloaded and
  * before it is changed. Those checks count as failed sign-ins too, and enough
@@ -59,6 +62,9 @@ final class Panel
     private const LOGIN_LIMIT_OVERALL = 100;
 
     private const PAGE_SIZE = 50;
+
+    /** Longest note the vendor may keep on an order, in characters (as the form's maxlength counts them). */
+    private const NOTES_MAX = 2000;
 
     /** The approved price list (2026-11-12), shown as hints when creating licences. */
     public const EDITIONS = [
@@ -296,7 +302,9 @@ final class Panel
         return match ($page) {
             'licences' => $this->licencesPage(),
             'licence' => $this->licencePage($this->query('key')),
-            'create' => $this->createPage([], null),
+            'orders' => $this->ordersPage(),
+            'order' => $this->orderPage($this->query('id')),
+            'create' => $this->createFromOrderPage($this->query('order')),
             'created' => $this->createdPage(),
             'api' => $this->apiPage(),
             'backup' => $this->backupPage(),
@@ -344,7 +352,12 @@ final class Panel
         $forwarded = $this->request->header('x-forwarded-for');
         $hops = $config->proxyHops();
 
-        $body = '<h1>Dashboard</h1><div class="tiles">' . $tiles . '</div>' . $this->flashNotice()
+        $newOrders = $store->countOrdersByStatus()['new'];
+        $ordersNotice = $newOrders === 0 ? '' : Html::notice('warn', '<p><strong>' . ($newOrders === 1 ? '1 new order' : $newOrders . ' new orders')
+            . '</strong> from the website order form ' . ($newOrders === 1 ? 'is' : 'are') . ' waiting for a reply. '
+            . '<a href="?page=orders&amp;status=new">Open the new orders</a></p>');
+
+        $body = '<h1>Dashboard</h1>' . $ordersNotice . '<div class="tiles">' . $tiles . '</div>' . $this->flashNotice()
             . '<h2>Licences</h2><div class="scroll"><table class="t-editions"><thead><tr><th>Edition</th><th>Active</th><th>Expired</th><th>Revoked</th>'
             . '<th>Computers activated now</th><th>Seats per licence</th></tr></thead><tbody>' . $rows . '</tbody></table></div>'
             . '<h2>Recent activity</h2>'
@@ -537,8 +550,165 @@ final class Panel
         return $this->page($key, $body, 'licences');
     }
 
+    /** The orders from the website's order form, newest first, as the licences page lists licences. */
+    private function ordersPage(): Response
+    {
+        $store = $this->app->store();
+        $search = Js::trim($this->query('q'));
+        $status = $this->query('status');
+        $offset = max(0, (int) $this->query('offset'));
+
+        $filters = [
+            'search' => $search === '' ? null : $search,
+            'status' => array_key_exists($status, Store::ORDER_STATUSES) ? $status : null,
+            'limit' => self::PAGE_SIZE + 1,
+            'offset' => $offset,
+        ];
+        $orders = $store->listOrders($filters);
+        $more = count($orders) > self::PAGE_SIZE;
+        $orders = array_slice($orders, 0, self::PAGE_SIZE);
+        $counts = $store->countOrdersByStatus();
+
+        $statusOptions = '<option value="">Any status</option>';
+        foreach (Store::ORDER_STATUSES as $value => $label) {
+            $statusOptions .= '<option value="' . Html::e($value) . '"' . ($filters['status'] === $value ? ' selected' : '') . '>'
+                . Html::e($label) . ' (' . $counts[$value] . ')</option>';
+        }
+
+        $rows = '';
+        foreach ($orders as $order) {
+            $rows .= '<tr><td class="when">' . Html::time($order['createdAt']) . '</td>'
+                . '<td class="mono key"><a href="?page=order&amp;id=' . $order['id'] . '">' . Html::e($order['ref']) . '</a></td>'
+                . '<td>' . self::editionChip($order['edition']) . ' × ' . $order['quantity'] . '</td>'
+                . '<td>' . Html::e($order['name']) . '<div class="muted">' . Html::e($order['email']) . '</div></td>'
+                . '<td class="mono">' . Html::e($order['phone']) . '</td>'
+                . '<td>' . self::orderBadge($order['status']) . '</td></tr>';
+        }
+
+        $base = '?page=orders&amp;q=' . rawurlencode($search) . '&amp;status=' . rawurlencode((string) $filters['status']);
+        $pager = '<p class="actions">'
+            . ($offset > 0 ? '<a href="' . $base . '&amp;offset=' . max(0, $offset - self::PAGE_SIZE) . '">← Newer</a>' : '')
+            . ($more ? '<a href="' . $base . '&amp;offset=' . ($offset + self::PAGE_SIZE) . '">Older →</a>' : '') . '</p>';
+
+        $body = '<h1>Orders</h1>' . $this->flashNotice()
+            . '<form method="get" action="./" class="card actions"><input type="hidden" name="page" value="orders">'
+            . '<div><label for="q">Search</label><input id="q" name="q" value="' . Html::e($search) . '" placeholder="Name, e-mail, mobile, reference or GSTIN"></div>'
+            . '<div><label for="status">Status</label><select id="status" name="status">' . $statusOptions . '</select></div>'
+            . '<div><button type="submit">Search</button></div></form>'
+            . ($rows === '' ? '<p class="muted">' . ($filters['search'] === null && $filters['status'] === null && $offset === 0
+                    ? 'No orders yet. Requests sent with the website’s order form appear here.' : 'No orders match.') . '</p>'
+                : '<div class="scroll"><table class="t-orders"><thead><tr><th>Received</th><th>Reference</th><th>Edition</th><th>Name</th>'
+                    . '<th>Mobile</th><th>Status</th></tr></thead><tbody>' . $rows . '</tbody></table></div>' . $pager)
+            . '<p class="hint">Orders are deleted automatically 24 months after they last changed.</p>';
+
+        return $this->page('Orders', $body, 'orders');
+    }
+
+    /** One order: everything the customer sent, the vendor's follow-up, and the licences made for it. */
+    private function orderPage(string $idInput): Response
+    {
+        $id = self::orderId($idInput);
+        $order = $id === null ? null : $this->app->store()->getOrder($id);
+        if ($order === null) {
+            return $this->page('Order not found', '<h1>Order not found</h1>' . $this->flashNotice()
+                . Html::notice('error', 'There is no such order. It may have been deleted.')
+                . '<p><a href="?page=orders">Back to the orders</a></p>', 'orders', 404);
+        }
+
+        $none = '—';
+        $optional = static fn (?string $value): string => $value === null ? $none : Html::e($value);
+        [$label, $seats, $price] = self::EDITIONS[$order['edition']] ?? [$order['edition'], '', ''];
+        $tel = '+' . preg_replace('/\D/', '', $order['phone']);
+        $mailto = 'mailto:' . str_replace('%40', '@', rawurlencode($order['email']));
+        $hiddenId = '<input type="hidden" name="id" value="' . $order['id'] . '">';
+
+        $facts = '<dl class="facts">'
+            . '<dt>Reference</dt><dd class="mono">' . Html::e($order['ref']) . '</dd>'
+            . '<dt>Status</dt><dd>' . self::orderBadge($order['status']) . '</dd>'
+            . '<dt>Received</dt><dd>' . Html::time($order['createdAt']) . '</dd>'
+            . '<dt>Last updated</dt><dd>' . Html::time($order['updatedAt']) . '</dd>'
+            . '<dt>Edition</dt><dd>' . self::editionChip($order['edition'])
+            . ($seats === '' ? '' : ' <span class="muted">' . Html::e("{$seats}; {$price}") . '</span>') . '</dd>'
+            . '<dt>Licences</dt><dd>' . $order['quantity'] . '</dd>'
+            . '<dt>Name</dt><dd>' . Html::e($order['name']) . '</dd>'
+            . '<dt>E-mail</dt><dd><a href="' . Html::e($mailto) . '">' . Html::e($order['email']) . '</a></dd>'
+            . '<dt>Mobile</dt><dd><a href="tel:' . Html::e($tel) . '">' . Html::e($order['phone']) . '</a></dd>'
+            . '<dt>Register to</dt><dd>' . $optional($order['registerTo']) . '</dd>'
+            . '<dt>GSTIN</dt><dd>' . $optional($order['gstin']) . '</dd>'
+            . '<dt>E-mailed to you</dt><dd>' . ($order['mailedAt'] === null ? 'not e-mailed' : Html::time($order['mailedAt'])) . '</dd>'
+            . '<dt>Message</dt><dd>' . ($order['message'] === null ? $none : nl2br(Html::e($order['message']))) . '</dd>'
+            . '<dt>Notes</dt><dd>' . ($order['notes'] === null ? $none : nl2br(Html::e($order['notes']))) . '</dd></dl>';
+
+        $statusOptions = '';
+        foreach (Store::ORDER_STATUSES as $value => $statusLabel) {
+            $statusOptions .= '<option value="' . Html::e($value) . '"' . ($order['status'] === $value ? ' selected' : '') . '>' . Html::e($statusLabel) . '</option>';
+        }
+
+        $update = '<form method="post" action="./">' . Session::csrfField() . '<input type="hidden" name="action" value="order-update">' . $hiddenId
+            . '<label>Follow-up</label>'
+            . '<label for="o-status">Status</label><select id="o-status" name="status">' . $statusOptions . '</select>'
+            . '<label for="o-notes">Notes</label><textarea id="o-notes" name="notes" rows="3" maxlength="' . self::NOTES_MAX . '">' . Html::e($order['notes'] ?? '') . '</textarea>'
+            . '<p class="hint">For you only: the customer never sees the status or the notes. Creating this order’s licences sets it to “'
+            . Html::e(Store::ORDER_STATUSES['licensed']) . '”.</p>'
+            . '<button type="submit">Save</button></form>';
+
+        $delete = '<form method="post" action="./" data-confirm="' . Html::e('Delete order ' . $order['ref'] . '? This cannot be undone.') . '">'
+            . Session::csrfField() . '<input type="hidden" name="action" value="order-delete">' . $hiddenId
+            . '<label>Delete this order</label>'
+            . '<p class="hint">For spam, or a customer who asks to be deleted. Licences already created for it are kept. '
+            . 'Otherwise orders are deleted automatically 24 months after they last changed.</p>'
+            . '<label class="inline"><input type="checkbox" name="confirm" value="1" required> Yes, delete ' . Html::e($order['ref']) . '</label>'
+            . '<p></p><button class="danger" type="submit">Delete order</button></form>';
+
+        $licences = '';
+        foreach ($this->app->store()->findByOrderRef($order['ref']) as $licence) {
+            $licences .= '<tr><td class="mono key"><a href="?page=licence&amp;key=' . rawurlencode($licence['key']) . '">' . Html::e($licence['key']) . '</a></td>'
+                . '<td>' . self::editionChip($licence['edition']) . '</td>'
+                . '<td>' . Html::e($licence['registeredTo'] ?? '') . '<div class="muted">' . Html::e($licence['email'] ?? '') . '</div></td>'
+                . '<td>' . Html::date($licence['expiresAt']) . '</td>'
+                . '<td>' . Html::date($licence['createdAt']) . '</td></tr>';
+        }
+
+        $body = '<h1>Order ' . Html::e($order['ref']) . '</h1>' . $this->flashNotice()
+            . '<div class="card">' . $facts . '</div>'
+            . '<p class="actions"><a href="?page=create&amp;order=' . $order['id'] . '">Create licence for this order</a>'
+            . '<a href="' . Html::e($mailto) . '">Reply by e-mail</a><a href="?page=orders">All orders</a></p>'
+            . '<h2>Follow-up</h2><div class="grid"><div class="card">' . $update . '</div><div class="card">' . $delete . '</div></div>'
+            . '<h2>Licences for this order</h2>' . ($licences === ''
+                ? '<p class="muted">None yet. “Create licence for this order” fills in the form from this order, with its reference.</p>'
+                : '<div class="scroll"><table class="t-order-licences"><thead><tr><th>Key</th><th>Edition</th><th>Registered to</th><th>Expires</th><th>Created</th></tr></thead><tbody>'
+                    . $licences . '</tbody></table></div>');
+
+        return $this->page('Order ' . $order['ref'], $body, 'orders');
+    }
+
+    /** The create page, filled in from an order when `?order=` names one. */
+    private function createFromOrderPage(string $orderInput): Response
+    {
+        $id = $orderInput === '' ? null : self::orderId($orderInput);
+        $order = $id === null ? null : $this->app->store()->getOrder($id);
+        if ($order === null) {
+            return $this->createPage([], $orderInput === '' ? null : 'There is no such order, so nothing was filled in.');
+        }
+
+        $sticky = [
+            'edition' => array_key_exists($order['edition'], self::EDITIONS) ? $order['edition'] : 'professional',
+            'registeredTo' => $order['registerTo'] ?? $order['name'],
+            'email' => $order['email'],
+            'count' => (string) $order['quantity'],
+            'orderRef' => $order['ref'],
+            'notes' => "Website order {$order['ref']}",
+        ];
+        $intro = Html::notice('ok', 'Filled in from order <a href="?page=order&amp;id=' . $order['id'] . '">' . Html::e($order['ref']) . '</a> ('
+            . Html::e($order['name']) . '). Check the details, then create; ' . (in_array($order['status'], ['new', 'contacted', 'paid'], true)
+                ? 'the order is then marked “' . Html::e(Store::ORDER_STATUSES['licensed']) . '”.'
+                : 'the order stays “' . Html::e(Store::ORDER_STATUSES[$order['status']] ?? $order['status']) . '” — change its status on the order page if it should.'));
+
+        return $this->createPage($sticky, null, 200, $intro);
+    }
+
     /** @param array<string, string> $sticky */
-    private function createPage(array $sticky, ?string $error, int $status = 200): Response
+    private function createPage(array $sticky, ?string $error, int $status = 200, string $intro = ''): Response
     {
         $value = static fn (string $name, string $default = ''): string => Html::e($sticky[$name] ?? $default);
         $edition = $sticky['edition'] ?? 'professional';
@@ -550,7 +720,7 @@ final class Panel
                 . Html::e("{$label} — {$seats} — {$price}") . '</option>';
         }
 
-        $body = '<h1>Create licences</h1>' . ($error === null ? '' : Html::notice('error', Html::e($error)))
+        $body = '<h1>Create licences</h1>' . $intro . ($error === null ? '' : Html::notice('error', Html::e($error)))
             . '<form method="post" action="./" class="card">' . Session::csrfField() . '<input type="hidden" name="action" value="create">'
             . '<label for="edition">Edition</label><select id="edition" name="edition">' . $options . '</select>'
             . '<p class="hint">The Free edition needs no key. Prices are the approved list; payment is taken outside this panel.</p>'
@@ -668,7 +838,7 @@ final class Panel
             . 'The privacy policy promises that this history is kept for 13 months and then deleted, so entries older than '
             . '<strong>' . $days . ' days</strong> are deleted automatically, once a day — and so are the monthly log files in '
             . '<code>recoverx-licensing/data/logs/</code> once they are that old. The same pass forgets the rate-limit counters, which are '
-            . 'kept per address, once they have refilled, and failed sign-ins after a day.</p>'
+            . 'kept per address, once they have refilled, failed sign-ins after a day, and orders from the website form once they have not changed for 24 months.</p>'
             . '<dl class="facts"><dt>Older than ' . $days . ' days now</dt><dd>' . Html::e($what) . ' (recorded before ' . Html::e($before) . ')</dd>'
             . '<dt>Last tidied</dt><dd>' . Html::e($retention->lastRun() === null ? 'not yet' : Html::time($retention->lastRun())) . '</dd></dl>'
             . '<form method="post" action="./" data-confirm="' . Html::e("Delete {$what} recorded before {$before}? This cannot be undone.") . '">'
@@ -709,6 +879,10 @@ final class Panel
 
                 case 'create':
                     return $this->create($context);
+
+                case 'order-update':
+                case 'order-delete':
+                    return $this->orderAct($action, $context);
 
                 case 'email-key':
                     $licence = $authority->show($key)['license'];
@@ -774,7 +948,8 @@ final class Panel
                     ]);
                     Session::flash('notice', ['ok', 'Personal details erased: the name, e-mail and notes, and '
                         . ($erased['addresses'] === 1 ? '1 recorded address' : "{$erased['addresses']} recorded addresses")
-                        . ($erased['orderRefErased'] ? ', and the order reference, as the licence ended more than 8 years ago.' : '.')]);
+                        . ($erased['orderRefErased'] ? ', and the order reference, as the licence ended more than 8 years ago' : '')
+                        . ($erased['orders'] > 0 ? '; the website order behind it was deleted too.' : '.')]);
 
                     return Html::redirect($back);
 
@@ -809,6 +984,7 @@ final class Panel
                     Session::flash('notice', ['ok', ($result['deleted'] === 1 ? '1 event' : "{$result['deleted']} events")
                         . ' recorded before ' . Html::date($result['cutoff']) . ' deleted'
                         . ($result['logFiles'] === 0 ? '' : ', with ' . $result['logFiles'] . ' old log file' . ($result['logFiles'] === 1 ? '' : 's'))
+                        . ($result['orders'] === 0 ? '' : ', and ' . ($result['orders'] === 1 ? '1 order' : "{$result['orders']} orders") . ' unchanged for 24 months')
                         . '.']);
 
                     return Html::redirect('?page=backup');
@@ -884,12 +1060,81 @@ final class Panel
             return $this->createPage($sticky, $error->getMessage(), 400);
         }
 
+        // An order from the website form with this reference now has its
+        // licences. The keys are made and must be shown, so a failure here
+        // is only logged.
+        if ($result['created'] && isset($input->orderRef)) {
+            try {
+                if ($this->app->store()->markOrderLicensed($input->orderRef, $this->app->now())) {
+                    $this->app->logger()->info('Order marked licensed', ['ref' => $input->orderRef, 'ip' => $context['ip']]);
+                }
+            } catch (\Throwable $error) {
+                $this->app->logger()->warn('Licences created, but their order could not be marked licensed', ['error' => $error->getMessage(), 'ip' => $context['ip']]);
+            }
+        }
+
         // Only for keys made just now: a repeated order reference shows the
         // existing keys, and must not mail them again.
         $result['mail'] = $sticky['sendEmail'] === '1' && $result['created'] ? $this->mailNewKeys($result['licenses'], $context) : null;
         Session::flash('created', $result);
 
         return Html::redirect('?page=created');
+    }
+
+    /**
+     * Change an order's status and notes, or delete it. Each goes back to
+     * where the vendor came from, with what happened as a notice.
+     *
+     * @param 'order-update'|'order-delete' $action
+     * @param array{actor: string, ip: string} $context
+     */
+    private function orderAct(string $action, array $context): Response
+    {
+        $store = $this->app->store();
+        $id = self::orderId($this->request->field('id'));
+        $order = $id === null ? null : $store->getOrder($id);
+        if ($id === null || $order === null) {
+            Session::flash('notice', ['error', 'That order no longer exists.']);
+
+            return Html::redirect('?page=orders');
+        }
+
+        $back = '?page=order&id=' . $id;
+
+        if ($action === 'order-delete') {
+            if ($this->request->field('confirm') !== '1') {
+                Session::flash('notice', ['error', 'Tick “Yes, delete ' . $order['ref'] . '” to confirm, then delete again. Nothing was deleted.']);
+
+                return Html::redirect($back);
+            }
+
+            $store->deleteOrder($id);
+            $this->app->logger()->info('Order deleted', ['ref' => $order['ref'], 'ip' => $context['ip']]);
+            Session::flash('notice', ['ok', 'Order ' . $order['ref'] . ' deleted.']);
+
+            return Html::redirect('?page=orders');
+        }
+
+        try {
+            $status = $this->request->field('status');
+            if (!array_key_exists($status, Store::ORDER_STATUSES)) {
+                throw LicenseError::invalidArgument('Choose one of the listed statuses.');
+            }
+            $notes = $this->text('notes');
+            if ($notes !== null && Js::length($notes) > self::NOTES_MAX) {
+                throw LicenseError::invalidArgument('The notes can be at most ' . self::NOTES_MAX . ' characters long.');
+            }
+        } catch (LicenseError $error) {
+            Session::flash('notice', ['error', $error->getMessage() . ' Nothing was changed.']);
+
+            return Html::redirect($back);
+        }
+
+        $store->updateOrder($id, $status, $notes, $this->app->now());
+        $this->app->logger()->info('Order updated', ['ref' => $order['ref'], 'status' => $status, 'ip' => $context['ip']]);
+        Session::flash('notice', ['ok', 'Saved: ' . $order['ref'] . ' is now “' . Store::ORDER_STATUSES[$status] . '”.']);
+
+        return Html::redirect($back);
     }
 
     /**
@@ -952,7 +1197,7 @@ final class Panel
 
         $site = $this->app->config()->siteUrl() ?? ('https://' . ($this->request->header('host') ?? 'localhost'));
         $mail = LicenceMail::compose($licences, $site);
-        $messageId = $mailer->send($to, $mail['subject'], $mail['text']);
+        $messageId = $mailer->send($to, $mail['subject'], $mail['text'], null, $mail['html']);
 
         foreach ($licences as $licence) {
             $this->app->authority()->recordKeyEmailed($licence['key'], $messageId, $context);
@@ -1140,6 +1385,18 @@ final class Panel
             . '<td class="muted">' . Html::e($detail) . '</td></tr>';
     }
 
+    /** An order's status as a coloured pill (the stylesheet colours it by `data-order`). */
+    private static function orderBadge(string $status): string
+    {
+        return '<span class="badge" data-order="' . Html::e($status) . '">' . Html::e(Store::ORDER_STATUSES[$status] ?? $status) . '</span>';
+    }
+
+    /** An order's number from a query or form field, or `null` when it is not one. */
+    private static function orderId(string $value): ?int
+    {
+        return preg_match('/^[1-9][0-9]{0,17}$/D', $value) === 1 ? (int) $value : null;
+    }
+
     /** An edition as a coloured chip (the stylesheet colours it by `data-ed`). */
     private static function editionChip(string $edition): string
     {
@@ -1152,8 +1409,16 @@ final class Panel
      */
     private function page(string $title, string $body, string $active, int $status = 200): Response
     {
+        try {
+            $newOrders = $this->app->store()->countOrdersByStatus()['new'];
+        } catch (\Throwable) {
+            // The page matters more than the count beside a link.
+            $newOrders = 0;
+        }
+
         $groups = [
             'overview' => ['Overview', ['dashboard' => ['./', 'Dashboard']]],
+            'orders' => ['Orders', ['orders' => ['?page=orders', 'Orders' . ($newOrders > 0 ? " ({$newOrders})" : '')]]],
             'licences' => ['Licences', ['licences' => ['?page=licences', 'All licences'], 'create' => ['?page=create', 'Create licence']]],
             'integrations' => ['Integrations', ['api' => ['?page=api', 'API token']]],
             'system' => ['System', ['backup' => ['?page=backup', 'Backup'], 'password' => ['?page=password', 'Password']]],

@@ -1,13 +1,13 @@
 # RecoverX — Privacy Policy
 
-**Last updated:** 13 November 2026
+**Last updated:** 22 November 2026
 
 ## 1. Who we are
 
-RecoverX is made by **Appsgain Technologies Private Limited**, a company registered in India, of 22, Appsgain Technologies Building, Goraul Block, Katarmala Road, Adampur, Hajipur, Vaishali, Bihar 844114, India ("we", "us"). We decide why and how the personal data described in this policy is used: we are its data fiduciary under India's Digital Personal Data Protection Act, 2023, and its controller under the GDPR and the UK GDPR.
+RecoverX is made by **Appsgain Technologies Private Limited**, a company registered in India ("we", "us"). We decide why and how the personal data described in this policy is used: we are its data fiduciary under India's Digital Personal Data Protection Act, 2023, and its controller under the GDPR and the UK GDPR.
 
 Contact for anything in this policy: **info@appsgain.in**.
-Grievance Officer (Digital Personal Data Protection Act, 2023): our Grievance Officer can be reached at info@appsgain.in (please put "Grievance Officer" in the subject line) or by post at the address above.
+Grievance Officer (Digital Personal Data Protection Act, 2023): our Grievance Officer can be reached at info@appsgain.in (please put "Grievance Officer" in the subject line).
 
 This policy covers the RecoverX desktop application for Windows (however you obtained it, including from the Microsoft Store), our website at https://recoverx.snapkio.com, our licence activation service and our update and download service.
 
@@ -63,7 +63,7 @@ If you activate **offline**, nothing is sent by the app. You send us the compute
 
 Licences are sold through our website (https://recoverx.snapkio.com/buy/), never inside the app or its installer. The app only opens that page in your web browser, without adding any information about you or your computer to the address.
 
-At present you buy a licence by emailing us at info@appsgain.in, and we reply with how to pay. We receive from you your name, your email address, the edition you want and any billing details you give us for the invoice. From the payment itself we see what our bank shows us for it: typically the payer's name, the amount, the date, a transaction reference and, for a UPI payment, the payer's UPI ID. We record your name, email address and order reference with the licence key we issue, so that we can deliver the key, provide support, process refunds and keep the accounting records the law requires. We email the licence key to the address you gave, from licences@snapkio.com, through Amazon Simple Email Service (section 7); your replies reach info@appsgain.in.
+At present you buy a licence by sending the order form on https://recoverx.snapkio.com/buy/ (or by emailing us at info@appsgain.in), and we reply with how to pay. The form sends us the edition and number of licences you want, your name, your email address and your mobile number with its country code, all of which are required, and — if you fill them in — the name the licence should be registered to, your GSTIN and a message. Our licence server stores the order request in its database, where we see it in our administration panel, and also passes it on to our mailboxes by email through Amazon Simple Email Service. It sends you a short confirmation (at most one a day to the same address) that names the edition, the number of licences and the order reference. Your IP address is used, as for every request to our server, to limit how many forms can come from one address (section 4.1) and appears in the server's request log (section 6). By email or form, we receive from you your name, your email address, the edition you want, your mobile number (the form requires it, so that we can contact you about your order by phone or WhatsApp) and any billing details you give us for the invoice. From the payment itself we see what our bank shows us for it: typically the payer's name, the amount, the date, a transaction reference and, for a UPI payment, the payer's UPI ID. We record your name, email address and order reference with the licence key we issue, so that we can deliver the key, provide support, process refunds and keep the accounting records the law requires. We email the licence key to the address you gave, from licences@snapkio.com, through Amazon Simple Email Service (section 7); your replies reach info@appsgain.in.
 
 You pay through your own bank, UPI app or payment service, which handles your card or account details under its own terms; neither we nor the app ever see them. If we add an online payment page, this policy will name the company that runs it before the page goes live.
 
@@ -102,28 +102,29 @@ If the GDPR or the UK GDPR applies to you, our legal bases are: performing our c
 
 ## 6. How long we keep it
 
-| Data                                                                                                                                                                               | Kept for                                                                                                                                                   |
-| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Licence and purchase records: key, edition, the name and email address you gave at purchase, order reference, invoices and payment records                                         | For as long as the licence can be used, then 8 years, as the books of account must be kept under section 128 of the Companies Act, 2013.                   |
-| Activations: licence key, computer identifier, dates                                                                                                                               | As long as the licence record above. A removed activation is kept as a record that the place was freed.                                                    |
-| Licence server records that include IP addresses: the activation event log (activations, removals, automatic removals and renewal checks), the request log and rate-limit counters | 13 months, then deleted. The request log is kept in one file per calendar month, and each file is deleted once the last day of its month is 13 months old. |
-| Web server access logs for the website, downloads and update checks, including IP addresses                                                                                        | 30 days on our server, then deleted.                                                                                                                       |
-| Support emails and attachments                                                                                                                                                     | 24 months after the request is closed.                                                                                                                     |
-| Data on your computer (section 3)                                                                                                                                                  | Until you delete it or uninstall the app and choose to remove it.                                                                                          |
+| Data                                                                                                                                                                               | Kept for                                                                                                                                                                                                |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Licence and purchase records: key, edition, the name and email address you gave at purchase, order reference, invoices and payment records                                         | For as long as the licence can be used, then 8 years, as the books of account must be kept under section 128 of the Companies Act, 2013.                                                                |
+| Activations: licence key, computer identifier, dates                                                                                                                               | As long as the licence record above. A removed activation is kept as a record that the place was freed.                                                                                                 |
+| Licence server records that include IP addresses: the activation event log (activations, removals, automatic removals and renewal checks), the request log and rate-limit counters | 13 months, then deleted. The request log is kept in one file per calendar month, and each file is deleted once the last day of its month is 13 months old.                                              |
+| Web server access logs for the website, downloads and update checks, including IP addresses                                                                                        | 30 days on our server, then deleted.                                                                                                                                                                    |
+| Support emails and attachments                                                                                                                                                     | 24 months after the request is closed.                                                                                                                                                                  |
+| Order requests stored by the licence server, and order emails                                                                                                                      | 24 months after the order was last updated (an order email: after our last reply), then deleted. If you buy, the details needed for the purchase become part of the licence and purchase records above. |
+| Data on your computer (section 3)                                                                                                                                                  | Until you delete it or uninstall the app and choose to remove it.                                                                                                                                       |
 
 ## 7. Who receives it
 
 We do not sell, rent or share personal data for advertising. We share it only with:
 
-- **Amazon Web Services (AWS)**, our hosting provider, whose servers in Mumbai, India run recoverx.snapkio.com: the website, the download and update files, and the licence server with its database and logs. AWS also sends the emails that deliver licence keys (Amazon Simple Email Service), so it handles your email address and the content of those emails. AWS processes this data on our behalf and under our instructions.
-- **Our email service provider**, which hosts the info@appsgain.in mailbox we use for licence delivery and support, on our behalf.
+- **Amazon Web Services (AWS)**, our hosting provider, whose servers in Mumbai, India run recoverx.snapkio.com: the website, the download and update files, and the licence server with its database and logs. AWS also sends our emails through Amazon Simple Email Service — licence keys, order forms passed on to our mailboxes and the confirmation you receive — so it handles your email address and the content of those emails. AWS processes this data on our behalf and under our instructions.
+- **Our email service providers**, which host the mailboxes we use for orders, licence delivery and support on our behalf: the info@appsgain.in mailbox, and a Google Gmail mailbox that also receives order forms.
 - **Our accountants and auditors, and tax authorities**, to the extent Indian law requires for purchase and accounting records.
 
 Microsoft distributes RecoverX through the Microsoft Store and processes data about Store downloads itself (section 4.7); we do not send it data about you. Your bank or payment service processes your payment for you, under its own terms.
 
 We may disclose data when the law requires it, or to protect our rights in a dispute. If our business is transferred, the data would pass to the new owner under this policy.
 
-**International transfers.** Our website, licence server and licence emails run on AWS servers in India (Mumbai). Our email provider for info@appsgain.in may store data on servers outside India and outside your country. Indian law permits such transfers except to countries the Government of India has restricted. Where the GDPR or the UK GDPR applies and data is transferred to a country without an adequacy decision, we rely on the safeguards in our providers' data processing terms, such as the European Commission's standard contractual clauses.
+**International transfers.** Our website, licence server and licence emails run on AWS servers in India (Mumbai). Our email providers (for info@appsgain.in, and Google for Gmail) may store data on servers outside India and outside your country. Indian law permits such transfers except to countries the Government of India has restricted. Where the GDPR or the UK GDPR applies and data is transferred to a country without an adequacy decision, we rely on the safeguards in our providers' data processing terms, such as the European Commission's standard contractual clauses.
 
 ## 8. Security
 
@@ -151,4 +152,4 @@ This policy is governed by the laws of India. That does not take away any protec
 
 ## 13. Contact
 
-Appsgain Technologies Private Limited — 22, Appsgain Technologies Building, Goraul Block, Katarmala Road, Adampur, Hajipur, Vaishali, Bihar 844114, India — info@appsgain.in — https://appsgain.in
+Appsgain Technologies Private Limited, India — info@appsgain.in — https://appsgain.in

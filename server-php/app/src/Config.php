@@ -48,7 +48,13 @@ final class Config
         'mail_from_name' => 'RecoverX',
         'mail_reply_to' => '',
         'ses_region' => '',
+        // Who receives the website's order form (/order/): up to 5 addresses.
+        // Empty: mail_reply_to. Needs e-mail switched on (mail_from).
+        'order_notify_to' => [],
     ];
+
+    /** The most addresses `order_notify_to` may list. */
+    public const MAX_ORDER_RECIPIENTS = 5;
 
     /** The most proxies `trust_proxy` may count. */
     public const MAX_PROXY_HOPS = 10;
@@ -124,6 +130,18 @@ final class Config
                 if (!is_bool($value)) {
                     $problems[] = "{$name} must be true or false";
                     continue;
+                }
+            } elseif (is_array($default)) {
+                $problem = "{$name} must be a list of up to " . self::MAX_ORDER_RECIPIENTS . " e-mail addresses, such as ['sales@example.com']";
+                if (!is_array($value) || !array_is_list($value) || count($value) > self::MAX_ORDER_RECIPIENTS) {
+                    $problems[] = $problem;
+                    continue;
+                }
+                foreach ($value as $address) {
+                    if (!is_string($address) || !SesMailer::isAddress($address)) {
+                        $problems[] = $problem;
+                        continue 2;
+                    }
                 }
             } elseif (is_string($default)) {
                 $problem = is_string($value) ? self::textProblem($name, $value) : "{$name} must be text in quotes";

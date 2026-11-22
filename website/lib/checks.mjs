@@ -66,7 +66,7 @@ const CLOSES_PARAGRAPH = new Set([
 
 /**
  * Paths the website must never write to. `/v1/`, `/admin/`, `/setup/`,
- * `/healthz` and the root `.htaccess` belong to the PHP licence server in the
+ * `/order/`, `/healthz` and the root `.htaccess` belong to the PHP licence server in the
  * same public_html; `/downloads/` and `/updates/` hold release files that are
  * uploaded on their own and must never be replaced by a site upload.
  */
@@ -74,6 +74,7 @@ export const RESERVED_PATHS = [
   'v1/',
   'admin/',
   'setup/',
+  'order/',
   'downloads/',
   'updates/',
   'healthz',
@@ -293,6 +294,8 @@ export function verifySite(outDir, origin) {
   const htmlFiles = files.filter((file) => file.endsWith('.html'))
   /** @type {string[]} */
   const pages = []
+  /** Pages that ask search engines to stay away: they must not be in the sitemap. @type {Set<string>} */
+  const noindex = new Set()
 
   for (const file of htmlFiles) {
     const html = readFileSync(join(outDir, file), 'utf8')
@@ -316,6 +319,9 @@ export function verifySite(outDir, origin) {
       }
       // Absolute URLs of this site in metadata: canonical and Open Graph.
       const content = element.attributes.get('content')
+      if (element.name === 'meta' && element.attributes.get('name') === 'robots' && /\bnoindex\b/u.test(content ?? '')) {
+        noindex.add(pagePath)
+      }
       if (element.name === 'meta' && content?.startsWith(`${origin}/`)) {
         links.push({ from: pagePath, url: content })
       }
@@ -404,11 +410,12 @@ export function verifySite(outDir, origin) {
     }
   }
 
-  // Every indexable page is in the sitemap, and the sitemap names nothing else.
+  // Every indexable page is in the sitemap; a noindex page (the 404, the order
+  // form's outcome pages) is not.
   for (const page of pages) {
     const listed = sitemapUrls.includes(`${origin}${page}`)
-    if (page === '/404.html' && listed) problems.push('sitemap.xml lists the 404 page')
-    if (page !== '/404.html' && !listed) problems.push(`sitemap.xml does not list ${page}`)
+    if (noindex.has(page) && listed) problems.push(`sitemap.xml lists ${page}, which is noindex`)
+    if (!noindex.has(page) && !listed) problems.push(`sitemap.xml does not list ${page}`)
   }
 
   return { problems, external: [...external].sort(), internalLinks, pages: pages.sort() }

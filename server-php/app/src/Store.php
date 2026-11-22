@@ -21,10 +21,13 @@ use PDOException;
  * in memory has to live here too: the rate limiter's token buckets
  * (`rate_limits`), failed admin sign-ins (`login_attempts`) and when periodic
  * work last ran (`housekeeping` — the Node server keeps a timer instead).
- * Those tables are created outside the versioned migrations — they are this
- * server's private bookkeeping, and keeping them out of `user_version` is what
- * keeps the file openable by the reference server, which refuses a database
- * newer than it knows.
+ * The website's order form (`Order\OrderForm`) is this server's alone, and so
+ * is the table it fills: `orders`, one row per request, which the admin panel
+ * lists and the vendor follows up. Those tables are created outside the
+ * versioned migrations — they are this server's private bookkeeping, and
+ * keeping them out of `user_version` is what keeps the file openable by the
+ * reference server, which refuses a database newer than it knows (and ignores
+ * tables it does not use).
  *
  * Nothing in `licenses` or `activations` is ever deleted: revocation and
  * expiry are columns, and released seats keep their rows. The event log is
@@ -33,11 +36,13 @@ use PDOException;
  * self-service release allowance is counted from that log, which is why the
  * retention can never be shorter than the allowance's window. The other rows
  * that hold an address — rate-limit buckets and failed sign-ins — are deleted
- * by the same pass, sooner.
+ * by the same pass, sooner. Orders are deleted by it too, 24 months after
+ * they last changed (`EventRetention::ORDER_DAYS`), or at once from the panel.
  *
- * Not final, for one reason: the concurrency tests pause a connection between
- * a count and the write it guards by overriding the count, as the reference's
- * tests do with a Proxy around its store.
+ * Not final, for testing only: the concurrency tests pause a connection
+ * between a count and the write it guards by overriding the count, as the
+ * reference's tests do with a Proxy around its store, and the order tests
+ * force a reference collision through `newOrderRef`.
  */
 class Store
 {
@@ -70,6 +75,22 @@ class Store
     ];
 
     public const PAID_EDITIONS = ['professional', 'business', 'technician', 'enterprise'];
+
+    /**
+     * Where an order from the website form stands, as the vendor follows it
+     * up, with the label the admin panel shows. New orders start at `new`;
+     * creating its licences moves an open order to `licensed`.
+     */
+    public const ORDER_STATUSES = [
+        'new' => 'New',
+        'contacted' => 'Contacted',
+        'paid' => 'Paid',
+        'licensed' => 'Licence sent',
+        'cancelled' => 'Cancelled',
+    ];
+
+    /** The statuses creating an order's licences moves on to `licensed`. */
+    private const OPEN_ORDER_STATUSES = ['new', 'contacted', 'paid'];
 
     private int $depth = 0;
 
@@ -483,6 +504,195 @@ class Store
         return $counts;
     }
 
+    // --- orders from the website form ----------------------------------------------
+
+    /**
+     * Store an order request as `OrderForm::parse` returns it, with status
+     * `new`, under a fresh reference (`RX-` and eight hex digits). Empty
+     * optional fields are stored as NULL. A reference that is already taken
+     * is drawn again.
+     *
+     * @param array{edition: string, quantity: int, name: string, email: string, phoneCountry: string, phone: string, registerTo: string, gstin: string, message: string} $order
+     * @return array{id: int, ref: string}
+     */
+    public function insertOrder(array $order, ?string $ip, int $now): array
+    {
+        $optional = static fn (string $value): ?string => $value === '' ? null : $value;
+
+        for ($attempt = 1; ; $attempt++) {
+            $ref = $this->newOrderRef();
+            try {
+                $this->run(
+                    "INSERT INTO orders
+                       (ref, created_at, updated_at, status, edition, quantity, name, email, phone, phone_country,
+                        register_to, gstin, message, ip, notes, mailed_at)
+                     VALUES (?, ?, ?, 'new', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)",
+                    [
+                        $ref, $now, $now, $order['edition'], $order['quantity'], $order['name'], $order['email'],
+                        $order['phone'], $order['phoneCountry'], $optional($order['registerTo']), $optional($order['gstin']),
+                        $optional($order['message']), $ip === '' ? null : $ip,
+                    ],
+                );
+            } catch (PDOException $error) {
+                if ($attempt < 5 && self::isRefCollision($error)) {
+                    continue;
+                }
+                throw $error;
+            }
+
+            return ['id' => (int) $this->pdo->lastInsertId(), 'ref' => $ref];
+        }
+    }
+
+    /** Record that the vendor was e-mailed about an order. */
+    public function markOrderMailed(int $id, int $at): void
+    {
+        $this->run('UPDATE orders SET mailed_at = ? WHERE id = ?', [$at, $id]);
+    }
+
+    /** @return null|array<string, mixed> */
+    public function getOrder(int $id): ?array
+    {
+        $row = $this->run('SELECT * FROM orders WHERE id = ?', [$id])->fetch();
+
+        return $row === false ? null : self::toOrder($row);
+    }
+
+    /**
+     * Orders, newest first.
+     *
+     * `search` is a substring match over the name, e-mail, mobile number,
+     * reference, "register to" and GSTIN; a search made only of digits (and
+     * the spaces, dashes and brackets people type in phone numbers) also
+     * finds the mobile number whatever its spacing.
+     *
+     * @param array{status?: ?string, search?: ?string, limit: int, offset: int} $filter
+     * @return list<array<string, mixed>>
+     */
+    public function listOrders(array $filter): array
+    {
+        $clauses = [];
+        $parameters = [];
+
+        if (($filter['status'] ?? null) !== null) {
+            $clauses[] = 'status = ?';
+            $parameters[] = $filter['status'];
+        }
+
+        $search = $filter['search'] ?? null;
+        if ($search !== null && $search !== '') {
+            $pattern = '%' . self::escapeLike($search) . '%';
+            $match = ["name LIKE ? ESCAPE '\\'", "email LIKE ? ESCAPE '\\'", "phone LIKE ? ESCAPE '\\'", "ref LIKE ? ESCAPE '\\'",
+                "register_to LIKE ? ESCAPE '\\'", "gstin LIKE ? ESCAPE '\\'"];
+            array_push($parameters, $pattern, $pattern, $pattern, $pattern, $pattern, $pattern);
+
+            $digits = preg_replace('/[\s()\-]+/', '', $search) ?? '';
+            if (preg_match('/^\+?\d+$/D', $digits) === 1) {
+                $match[] = "REPLACE(phone, ' ', '') LIKE ? ESCAPE '\\'";
+                $parameters[] = '%' . self::escapeLike($digits) . '%';
+            }
+
+            $clauses[] = '(' . implode(' OR ', $match) . ')';
+        }
+
+        $where = $clauses === [] ? '' : 'WHERE ' . implode(' AND ', $clauses);
+        array_push($parameters, $filter['limit'], $filter['offset']);
+
+        $rows = $this->run("SELECT * FROM orders {$where} ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?", $parameters)->fetchAll();
+
+        return array_map(self::toOrder(...), $rows);
+    }
+
+    /**
+     * How many orders are in each status, every status listed.
+     *
+     * @return array<string, int>
+     */
+    public function countOrdersByStatus(): array
+    {
+        $counts = array_fill_keys(array_keys(self::ORDER_STATUSES), 0);
+        foreach ($this->run('SELECT status, COUNT(*) AS n FROM orders GROUP BY status')->fetchAll() as $row) {
+            $counts[(string) $row['status']] = (int) $row['n'];
+        }
+
+        return $counts;
+    }
+
+    /** Set an order's status and the vendor's notes. Returns whether the order exists. */
+    public function updateOrder(int $id, string $status, ?string $notes, int $now): bool
+    {
+        if (!array_key_exists($status, self::ORDER_STATUSES)) {
+            throw new \InvalidArgumentException("Unknown order status {$status}");
+        }
+
+        return $this->run('UPDATE orders SET status = ?, notes = ?, updated_at = ? WHERE id = ?', [$status, $notes, $now, $id])->rowCount() > 0;
+    }
+
+    /**
+     * Mark the order with this reference as licensed once its licences have
+     * been created — only while it is still open (new, contacted or paid), so
+     * a cancelled order stays cancelled. Returns whether an order changed.
+     */
+    public function markOrderLicensed(string $ref, int $now): bool
+    {
+        $open = implode(', ', array_fill(0, count(self::OPEN_ORDER_STATUSES), '?'));
+
+        return $this->run(
+            "UPDATE orders SET status = 'licensed', updated_at = ? WHERE ref = ? AND status IN ({$open})",
+            [$now, $ref, ...self::OPEN_ORDER_STATUSES],
+        )->rowCount() > 0;
+    }
+
+    /** Delete one order. Returns whether it existed. */
+    public function deleteOrder(int $id): bool
+    {
+        return $this->run('DELETE FROM orders WHERE id = ?', [$id])->rowCount() > 0;
+    }
+
+    /** Delete the orders last changed strictly before `$cutoff`. Returns how many went. */
+    public function deleteOrdersBefore(int $cutoff): int
+    {
+        return $this->run('DELETE FROM orders WHERE updated_at < ?', [$cutoff])->rowCount();
+    }
+
+    /** Delete the orders with this reference (erasing a licence's personal details). Returns how many went. */
+    public function deleteOrdersByRef(string $ref): int
+    {
+        return $this->run('DELETE FROM orders WHERE ref = ?', [$ref])->rowCount();
+    }
+
+    /**
+     * Delete the order form's rate-limit buckets that have refilled by their
+     * own burst and refill: those whose id matches `$like` (and not
+     * `$notLike`), except `$exceptIds`. A full bucket changes no decision, so
+     * this only forgets addresses sooner.
+     *
+     * @param list<string> $exceptIds
+     */
+    public function deleteRefilledOrderBuckets(string $like, ?string $notLike, array $exceptIds, int $burst, float $refillPerMs, int $now): int
+    {
+        $sql = "DELETE FROM rate_limits WHERE id LIKE ? ESCAPE '\\'";
+        $parameters = [$like];
+        if ($notLike !== null) {
+            $sql .= " AND id NOT LIKE ? ESCAPE '\\'";
+            $parameters[] = $notLike;
+        }
+        if ($exceptIds !== []) {
+            $sql .= ' AND id NOT IN (' . implode(', ', array_fill(0, count($exceptIds), '?')) . ')';
+            array_push($parameters, ...$exceptIds);
+        }
+        $sql .= ' AND tokens + (? - updated_at) * ? >= ?';
+        array_push($parameters, $now, (string) $refillPerMs, $burst);
+
+        return $this->run($sql, $parameters)->rowCount();
+    }
+
+    /** A new order reference: `RX-` and eight upper-case hex digits. */
+    protected function newOrderRef(): string
+    {
+        return 'RX-' . strtoupper(bin2hex(random_bytes(4)));
+    }
+
     // --- rate limiting and sign-in throttling ---------------------------------------
 
     /**
@@ -498,7 +708,9 @@ class Store
             $row = $this->run('SELECT tokens, updated_at FROM rate_limits WHERE id = ?', [$id])->fetch();
 
             if ($row === false) {
-                $this->makeRoom($burst, $refillPerMs, $now, $maxClients);
+                // Judging other buckets by the order form's slow refill would
+                // forget partly drained ones, so order inserts evict by age only.
+                $this->makeRoom($burst, $refillPerMs, $now, $maxClients, !str_starts_with($id, 'order|'));
                 $tokens = (float) $burst;
                 $updatedAt = $now;
             } else {
@@ -543,8 +755,13 @@ class Store
      */
     public function deleteRefilledBuckets(int $burst, float $refillPerMs, int $now): int
     {
+        // The order form's buckets (`order|…`) refill far more slowly than the
+        // activation limiter's: judged by these parameters they would look
+        // refilled within a minute and be deleted, which would reset the
+        // order caps. They are left to age out (`deleteBucketsBefore`) or to
+        // least-recently-used eviction instead.
         return $this->run(
-            'DELETE FROM rate_limits WHERE tokens + (? - updated_at) * ? >= ?',
+            "DELETE FROM rate_limits WHERE id NOT LIKE 'order|%' AND tokens + (? - updated_at) * ? >= ?",
             [$now, (string) $refillPerMs, $burst],
         )->rowCount();
     }
@@ -718,18 +935,22 @@ class Store
     }
 
     /** Make room for a new rate-limit bucket: drop refilled ones, then the least recently used. */
-    private function makeRoom(int $burst, float $refillPerMs, int $now, int $maxClients): void
+    private function makeRoom(int $burst, float $refillPerMs, int $now, int $maxClients, bool $dropRefilled = true): void
     {
         if ($this->rateLimitCount() < $maxClients) {
             return;
         }
 
-        $this->deleteRefilledBuckets($burst, $refillPerMs, $now);
+        if ($dropRefilled) {
+            $this->deleteRefilledBuckets($burst, $refillPerMs, $now);
+        }
 
         $excess = $this->rateLimitCount() - $maxClients + 1;
         if ($excess > 0) {
+            // The order form's overall cap is one bucket for everyone, so a
+            // flood of new addresses must not evict it.
             $this->run(
-                'DELETE FROM rate_limits WHERE id IN (SELECT id FROM rate_limits ORDER BY updated_at, id LIMIT ?)',
+                "DELETE FROM rate_limits WHERE id IN (SELECT id FROM rate_limits WHERE id NOT IN ('order|*', 'order|to|*') ORDER BY updated_at, id LIMIT ?)",
                 [$excess],
             );
         }
@@ -777,8 +998,38 @@ class Store
              CREATE TABLE IF NOT EXISTS housekeeping (
                task         TEXT PRIMARY KEY NOT NULL,
                last_run_at  INTEGER NOT NULL
-             );',
+             );
+             CREATE TABLE IF NOT EXISTS orders (
+               id             INTEGER PRIMARY KEY,
+               ref            TEXT NOT NULL UNIQUE,
+               created_at     INTEGER NOT NULL,
+               updated_at     INTEGER NOT NULL,
+               status         TEXT NOT NULL DEFAULT \'new\',
+               edition        TEXT NOT NULL,
+               quantity       INTEGER NOT NULL,
+               name           TEXT NOT NULL,
+               email          TEXT NOT NULL,
+               phone          TEXT NOT NULL,
+               phone_country  TEXT NOT NULL,
+               register_to    TEXT,
+               gstin          TEXT,
+               message        TEXT,
+               ip             TEXT,
+               notes          TEXT,
+               mailed_at      INTEGER
+             );
+             CREATE INDEX IF NOT EXISTS orders_created_at ON orders (created_at);
+             CREATE INDEX IF NOT EXISTS orders_updated_at ON orders (updated_at);',
         );
+    }
+
+    /** Whether an insert failed because the order reference it drew is taken. */
+    private static function isRefCollision(PDOException $error): bool
+    {
+        $code = $error->errorInfo[1] ?? null;
+
+        return ((is_int($code) && ($code & 0xff) === 19) || str_contains($error->getMessage(), 'constraint'))
+            && str_contains($error->getMessage(), 'orders.ref');
     }
 
     /** STRICT tables arrived in SQLite 3.37; older hosts get the same schema without the keyword. */
@@ -862,6 +1113,30 @@ class Store
             'revokeReason' => self::text($row['revoke_reason']),
             'orderRef' => self::text($row['order_ref']),
             'notes' => self::text($row['notes']),
+        ];
+    }
+
+    /** @param array<string, mixed> $row */
+    private static function toOrder(array $row): array
+    {
+        return [
+            'id' => (int) $row['id'],
+            'ref' => (string) $row['ref'],
+            'createdAt' => (int) $row['created_at'],
+            'updatedAt' => (int) $row['updated_at'],
+            'status' => (string) $row['status'],
+            'edition' => (string) $row['edition'],
+            'quantity' => (int) $row['quantity'],
+            'name' => (string) $row['name'],
+            'email' => (string) $row['email'],
+            'phone' => (string) $row['phone'],
+            'phoneCountry' => (string) $row['phone_country'],
+            'registerTo' => self::text($row['register_to']),
+            'gstin' => self::text($row['gstin']),
+            'message' => self::text($row['message']),
+            'ip' => self::text($row['ip']),
+            'notes' => self::text($row['notes']),
+            'mailedAt' => self::integer($row['mailed_at']),
         ];
     }
 

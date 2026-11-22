@@ -48,7 +48,7 @@ const CONTENT_SECURITY_POLICY = [
   "style-src 'self'",
   "img-src 'self'",
   "base-uri 'none'",
-  "form-action 'none'",
+  "form-action 'self'",
 ].join('; ')
 
 /**
@@ -235,11 +235,11 @@ function footer(page, site) {
 </nav>
 <nav class="f-col" aria-labelledby="f-help">
 <h2 id="f-help">Help</h2>
-<ul><li><a href="/support/">Support</a></li><li><a href="/support/#activate-offline">Offline activation</a></li><li><a href="/support/#move-licence">Move a licence</a></li><li><a href="/buy/#how-to-buy">How to buy</a></li></ul>
+<ul><li><a href="/support/">Support</a></li><li><a href="/support/#activate-offline">Offline activation</a></li><li><a href="/support/#move-licence">Move a licence</a></li><li><a href="/buy/#order">Order a licence</a></li></ul>
 </nav>
 <div class="f-col">
 <h2 id="f-company">Company</h2>
-<ul><li><a href="${site.vendor.url}">${site.vendor.shortName}</a></li><li><a href="mailto:${site.email}">${site.email}</a></li><li class="muted">${site.vendor.town}</li></ul>
+<ul><li><a href="${site.vendor.url}">${site.vendor.shortName}</a></li><li><a href="mailto:${site.email}">${site.email}</a></li></ul>
 </div>
 <nav class="f-col" aria-labelledby="f-legal">
 <h2 id="f-legal">Legal</h2>

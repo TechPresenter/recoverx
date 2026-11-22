@@ -1527,6 +1527,215 @@ describe.skipIf(PHP === null)(
           expect(logs).not.toContain('Jane Doe')
           expect(logs).not.toContain(key)
         })
+
+        it('stores website orders for the Orders page, follows them up, creates their licences and deletes them', async () => {
+          interface OrderRow {
+            id: number
+            ref: string
+            status: string
+            name: string
+            phone: string
+            phone_country: string
+            notes: string | null
+            mailed_at: number | null
+          }
+          const orders = (): OrderRow[] =>
+            harness.db(
+              (db) => db.prepare('SELECT * FROM orders ORDER BY id').all() as unknown as OrderRow[],
+            )
+          const order = (fields: Record<string, string>, headers: Record<string, string> = {}) =>
+            request(harness, 'POST', '/order/', {
+              headers: { ...headers, 'content-type': 'application/x-www-form-urlencoded' },
+              body: new URLSearchParams(fields).toString(),
+            })
+          const fields = {
+            edition: 'technician',
+            quantity: '3',
+            name: '<b>Jane</b> & Co',
+            email: 'jane.order@example.com',
+            phoneCountry: 'IN',
+            phone: '98765 43210',
+            registerTo: '',
+            gstin: '',
+            message: 'Line one\n<script>alert(2)</script>',
+            nectar: '',
+          }
+
+          // A post from another site's page, and one without the mobile number, store nothing.
+          const foreign = await order(fields, { origin: 'https://evil.example' })
+          expect(foreign.status).toBe(303)
+          expect(foreign.headers.get('location')).toBe('/buy/error/')
+          const noMobile = await order({ ...fields, phone: '' })
+          expect(noMobile.headers.get('location')).toBe('/buy/error/')
+          expect(orders()).toEqual([])
+
+          // E-mail is off in this harness: the order is stored, and that counts as sent.
+          const sent = await order(fields)
+          expect(sent.status).toBe(303)
+          expect(sent.headers.get('location')).toBe('/buy/sent/')
+          const [stored] = orders()
+          expect(stored).toMatchObject({
+            status: 'new',
+            name: '<b>Jane</b> & Co',
+            phone: '+91 9876543210',
+            phone_country: 'IN',
+            mailed_at: null,
+          })
+          const ref = stored?.ref ?? ''
+          const id = stored?.id ?? 0
+          expect(ref).toMatch(/^RX-[0-9A-F]{8}$/u)
+
+          const login = await browse('GET', '/admin/')
+          expect(
+            (
+              await browse('POST', '/admin/', {
+                action: 'login',
+                csrf: csrfOf(login),
+                password: ADMIN_PASSWORD,
+              })
+            ).status,
+          ).toBe(303)
+
+          const dashboard = await browse('GET', '/admin/')
+          expect(dashboard.text).toContain('Orders (1)</a>')
+          expect(dashboard.text).toContain('<strong>1 new order</strong>')
+
+          const list = await browse('GET', '/admin/?page=orders')
+          expect(list.status).toBe(200)
+          expect(list.text).toContain(`<a href="?page=order&amp;id=${id}">${ref}</a>`)
+          expect(list.text).toContain('&lt;b&gt;Jane&lt;/b&gt; &amp; Co')
+          expect(list.text).not.toContain('<b>Jane</b>')
+          expect(list.text).toContain('+91 9876543210')
+          expect((await browse('GET', '/admin/?page=orders&q=jane.order')).text).toContain(ref)
+          expect((await browse('GET', '/admin/?page=orders&q=98765+43210')).text).toContain(ref)
+          expect((await browse('GET', '/admin/?page=orders&status=paid')).text).not.toContain(ref)
+
+          const page = await browse('GET', `/admin/?page=order&id=${id}`)
+          expect(page.status).toBe(200)
+          expect(page.text).toContain(`<h1>Order ${ref}</h1>`)
+          expect(page.text).toContain('&lt;b&gt;Jane&lt;/b&gt; &amp; Co')
+          expect(page.text).toContain('Line one<br />\n&lt;script&gt;alert(2)&lt;/script&gt;')
+          expect(page.text).not.toContain('<script>alert(2)')
+          expect(page.text).toContain('href="tel:+919876543210"')
+          expect(page.text).toContain('href="mailto:jane.order@example.com"')
+          expect(page.text).toContain('not e-mailed')
+          expect(page.text).toContain(`href="?page=create&amp;order=${id}"`)
+          const csrf = csrfOf(page)
+
+          const forged = await browse('POST', '/admin/', {
+            action: 'order-update',
+            id: String(id),
+            status: 'paid',
+            notes: '',
+          })
+          expect(forged.status).toBe(403)
+          expect(orders()[0]?.status).toBe('new')
+
+          const updated = await browse('POST', '/admin/', {
+            action: 'order-update',
+            csrf,
+            id: String(id),
+            status: 'contacted',
+            notes: 'Called <them> back',
+          })
+          expect(updated.status).toBe(303)
+          expect(updated.headers.get('location')).toBe(`?page=order&id=${id}`)
+          expect(orders()[0]).toMatchObject({ status: 'contacted', notes: 'Called <them> back' })
+          const afterUpdate = await browse('GET', `/admin/?page=order&id=${id}`)
+          expect(afterUpdate.text).toContain(`Saved: ${ref} is now “Contacted”.`)
+          expect(afterUpdate.text).toContain('Called &lt;them&gt; back')
+          expect(afterUpdate.text).not.toContain('Called <them>')
+
+          const badStatus = await browse('POST', '/admin/', {
+            action: 'order-update',
+            csrf,
+            id: String(id),
+            status: 'shipped',
+            notes: '',
+          })
+          expect(badStatus.status).toBe(303)
+          expect(orders()[0]?.status).toBe('contacted')
+          expect((await browse('GET', `/admin/?page=order&id=${id}`)).text).toContain(
+            'Choose one of the listed statuses.',
+          )
+
+          // "Create licence for this order" fills in the create form.
+          const prefilled = await browse('GET', `/admin/?page=create&order=${id}`)
+          expect(prefilled.status).toBe(200)
+          expect(prefilled.text).toContain('<option value="technician" selected>')
+          expect(prefilled.text).toContain(
+            'name="registeredTo" maxlength="200" value="&lt;b&gt;Jane&lt;/b&gt; &amp; Co"',
+          )
+          expect(prefilled.text).toContain('value="jane.order@example.com"')
+          expect(prefilled.text).toContain('name="count" inputmode="numeric" value="3"')
+          expect(prefilled.text).toContain(`name="orderRef" maxlength="200" value="${ref}"`)
+          expect(prefilled.text).toContain(`Website order ${ref}</textarea>`)
+
+          const created = await browse('POST', '/admin/', {
+            action: 'create',
+            csrf,
+            edition: 'technician',
+            registeredTo: '<b>Jane</b> & Co',
+            email: 'jane.order@example.com',
+            seats: '',
+            term: 'days',
+            days: '365',
+            count: '3',
+            orderRef: ref,
+            notes: `Website order ${ref}; mobile +91 9876543210`,
+          })
+          expect(created.status).toBe(303)
+          expect(created.headers.get('location')).toBe('?page=created')
+          const keys =
+            (await browse('GET', '/admin/?page=created')).text.match(
+              new RegExp(`${KEY_PREFIX}(?:-[0-9A-Z]{5}){4}`, 'gu'),
+            ) ?? []
+          expect(new Set(keys).size).toBe(3)
+          expect(orders()[0]?.status).toBe('licensed')
+          const licensed = await browse('GET', `/admin/?page=order&id=${id}`)
+          expect(licensed.text).toContain('Licence sent')
+          for (const key of keys) expect(licensed.text).toContain(key)
+
+          // Deleting needs the box ticked; the licences stay.
+          const unticked = await browse('POST', '/admin/', {
+            action: 'order-delete',
+            csrf,
+            id: String(id),
+          })
+          expect(unticked.status).toBe(303)
+          expect(unticked.headers.get('location')).toBe(`?page=order&id=${id}`)
+          expect(orders()).toHaveLength(1)
+          expect((await browse('GET', `/admin/?page=order&id=${id}`)).text).toContain(
+            'Nothing was deleted.',
+          )
+
+          const deleted = await browse('POST', '/admin/', {
+            action: 'order-delete',
+            csrf,
+            id: String(id),
+            confirm: '1',
+          })
+          expect(deleted.status).toBe(303)
+          expect(deleted.headers.get('location')).toBe('?page=orders')
+          expect(orders()).toEqual([])
+          expect((await browse('GET', '/admin/?page=orders')).text).toContain(
+            `Order ${ref} deleted.`,
+          )
+          const gone = await browse('GET', `/admin/?page=order&id=${id}`)
+          expect(gone.status).toBe(404)
+          expect(gone.text).toContain('<a href="?page=orders">Back to the orders</a>')
+          expect(
+            (await request(harness, 'GET', `/v1/admin/licenses?orderRef=${ref}`, { admin: true }))
+              .body.licenses,
+          ).toHaveLength(3)
+
+          const logs = harness.logs()
+          expect(logs).toContain('"msg":"Order stored but not e-mailed')
+          expect(logs).toContain(`"msg":"Order deleted","ref":"${ref}"`)
+          expect(logs).not.toContain('jane.order@example.com')
+          expect(logs).not.toContain('9876543210')
+          expect(logs).not.toContain('Jane</b>')
+        })
       })
     })
 

@@ -86,7 +86,7 @@ test('deletes events strictly older than the cutoff and keeps the rest', functio
 
     Assert::same(2, $retention->pending());
     $result = $retention->prune();
-    Assert::same(['deleted' => 2, 'cutoff' => $cutoff, 'rateLimits' => 0, 'loginAttempts' => 0, 'logFiles' => 0], $result);
+    Assert::same(['deleted' => 2, 'cutoff' => $cutoff, 'rateLimits' => 0, 'loginAttempts' => 0, 'logFiles' => 0, 'orders' => 0], $result);
     Assert::same([$cutoff, $cutoff + 1, Kit::NOW], eventTimes($f['store']));
     Assert::same(0, $retention->pending());
     Assert::same(Kit::NOW, $retention->lastRun());
@@ -160,6 +160,36 @@ test('deletes failed admin sign-ins once they are a day old', function (): void 
     Assert::same(0, $retention->prune()['loginAttempts']);
 });
 
+test('deletes orders from the website form 24 months after they last changed, whatever the event retention', function (): void {
+    $f = Kit::fixture();
+    $store = $f['store'];
+    $order = ['edition' => 'business', 'quantity' => 1, 'name' => 'Asha Rao', 'email' => 'asha@example.com', 'phoneCountry' => 'IN',
+        'phone' => '+91 9876543210', 'registerTo' => '', 'gstin' => '', 'message' => ''];
+    $cutoff = Kit::NOW - 730 * Kit::DAY;
+    Assert::same(730, EventRetention::ORDER_DAYS);
+
+    $store->insertOrder($order, '192.0.2.204', $cutoff - 1);          // 1: gone
+    $store->insertOrder($order, null, $cutoff);                        // 2: kept, on the boundary
+    $store->insertOrder($order, null, Kit::NOW - 900 * Kit::DAY);      // 3: received long ago…
+    $store->updateOrder(3, 'paid', null, Kit::NOW - 30 * Kit::DAY);    //    …but changed last month: kept
+    $store->insertOrder($order, null, Kit::NOW - 400 * Kit::DAY);      // 4: past the event retention, not the order one: kept
+
+    $retention = new EventRetention($store, 395, 365, $f['clock']);
+    $result = $retention->prune();
+    Assert::same(1, $result['orders']);
+    Assert::same([2, 3, 4], array_map('intval', $store->pdo->query('SELECT id FROM orders ORDER BY id')->fetchAll(\PDO::FETCH_COLUMN)));
+    Assert::same(1, $retention->logFields($result)['orders']);
+    Assert::same(0, $retention->prune()['orders'], 'a second pass deletes nothing more');
+
+    // Gone from the file too, address and all.
+    $bytes = (string) file_get_contents($f['file']) . (string) @file_get_contents($f['file'] . '-wal');
+    Assert::same(false, str_contains($bytes, '192.0.2.204'), 'the deleted order\'s address is not left in the file');
+
+    // A longer event retention does not keep orders longer.
+    $store->insertOrder($order, null, $cutoff - 1);
+    Assert::same(1, (new EventRetention($store, 1000, 365, $f['clock']))->prune()['orders']);
+});
+
 test('leaves no copy of what it deleted in the database file or its log', function (): void {
     $f = Kit::fixture();
     $store = $f['store'];
@@ -205,7 +235,7 @@ test('runs by itself at most once a day, and again once a day has passed', funct
 
     $f['clock']->advance(1);
     Assert::same(
-        ['deleted' => 1, 'cutoff' => Kit::NOW + Kit::DAY - 395 * Kit::DAY, 'rateLimits' => 0, 'loginAttempts' => 0, 'logFiles' => 0],
+        ['deleted' => 1, 'cutoff' => Kit::NOW + Kit::DAY - 395 * Kit::DAY, 'rateLimits' => 0, 'loginAttempts' => 0, 'logFiles' => 0, 'orders' => 0],
         $retention->pruneIfDue(),
     );
     Assert::same(null, $retention->pruneIfDue());
@@ -275,7 +305,7 @@ test('a request does the daily pass after answering, and never fails because of 
     Assert::same([], bucketIds($store));
     Assert::same([], signInFailureTimes($store));
     Assert::matches(
-        '/"msg":"Pruned the event log","via":"daily","deleted":1,"retentionDays":395,"cutoff":"2025-10-13T12:00:00.000Z","logFiles":0,"rateLimits":1,"loginAttempts":1/',
+        '/"msg":"Pruned the event log","via":"daily","deleted":1,"retentionDays":395,"cutoff":"2025-10-13T12:00:00.000Z","logFiles":0,"rateLimits":1,"loginAttempts":1,"orders":0/',
         (string) file_get_contents($app->logger()->currentFile() ?? ''),
     );
 

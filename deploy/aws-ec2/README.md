@@ -30,7 +30,10 @@ tar -C dist/website -cf - . | ssh -i <key> ubuntu@<server> 'tar -C /var/www/reco
 ```bash
 ssh -i <key> ubuntu@<server> 'cp -a /var/www/recoverx/recoverx-licensing/app ~/app-backup-$(date +%Y%m%d%H%M)'
 tar -C server-php -cf - app README.md | ssh -i <key> ubuntu@<server> 'tar -C /var/www/recoverx/recoverx-licensing --no-same-owner -xf -'
+tar -C server-php/public -cf - order | ssh -i <key> ubuntu@<server> 'tar -C /var/www/recoverx/public_html --no-same-owner -xf -'
 ```
+
+The second `tar` is the order form's endpoint (`/order/`); without it the form on /buy/ gets a 404. Check: `curl -sI https://recoverx.snapkio.com/order/` answers 303 to `/buy/#order`.
 
 **A release**: the installer and its `.blockmap` go to `public_html/downloads/win/<version>/`; the installer, `.blockmap` and `latest.yml` to `public_html/updates/win/latest/` (see [docs/RELEASE.md](../../docs/RELEASE.md)). Then rebuild and upload the website so /download/ shows the new checksum.
 

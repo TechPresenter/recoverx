@@ -6,6 +6,7 @@ namespace RecoverX\Licensing\Tests;
 
 use RecoverX\Licensing\Config;
 use RecoverX\Licensing\ConfigError;
+use RecoverX\Licensing\Mail\EmailHtml;
 use RecoverX\Licensing\Mail\InstanceRoleCredentials;
 use RecoverX\Licensing\Mail\LicenceMail;
 use RecoverX\Licensing\Mail\MailError;
@@ -99,6 +100,23 @@ test('sends one plain-text message through SES v2 and returns its id', function 
         ]],
         'ReplyToAddresses' => ['info@appsgain.in'],
     ], json_decode($request['body'], true));
+});
+
+test('sends an HTML alternative next to the text only when given one', function (): void {
+    $http = new FakeHttp([['status' => 200, 'body' => '{"MessageId":"m-1"}'], ['status' => 200, 'body' => '{"MessageId":"m-2"}'], ['status' => 200, 'body' => '{"MessageId":"m-3"}']]);
+    $html = "<!DOCTYPE html>\n<p>Hello ₹</p>\n";
+
+    Assert::same('m-1', mailer($http)->send('jane@example.com', 'S', "Hello ₹\n", null, $html));
+    Assert::same([
+        'Text' => ['Data' => "Hello ₹\n", 'Charset' => 'UTF-8'],
+        'Html' => ['Data' => $html, 'Charset' => 'UTF-8'],
+    ], json_decode($http->requests[0]['body'], true)['Content']['Simple']['Body']);
+
+    mailer($http)->send('jane@example.com', 'S', 'T');
+    mailer($http)->send('jane@example.com', 'S', 'T', null, '');
+    foreach ([1, 2] as $index) {
+        Assert::same(['Text'], array_keys(json_decode($http->requests[$index]['body'], true)['Content']['Simple']['Body']), "request {$index} is text only");
+    }
 });
 
 test('leaves out Reply-To when none is set', function (): void {
@@ -195,4 +213,73 @@ test('lists several keys in one e-mail, with unlimited and perpetual terms', fun
     Assert::matches('/^Hello,\n/', $mail['text']);
     Assert::matches('/Here are your licence keys:/', $mail['text']);
     Assert::matches('/RecoverX Technician · unlimited computers · never expires/', $mail['text']);
+
+    $html = $mail['html'];
+    foreach (['RECX-ABCDE-FGHJK-12345-MNPQR', 'RECX-AAAAA-BBBBB-CCCCC-DDDDD', 'Licence key 1 of 2', 'Licence key 2 of 2', 'Your licence keys are ready',
+        'Unlimited computers', 'Never expires', '>Hello,</p>'] as $expected) {
+        Assert::true(str_contains($html, $expected), "HTML contains {$expected}");
+    }
+});
+
+test('the licence e-mail’s HTML shows the key large, the terms and the download button, and escapes the name', function (): void {
+    $mail = LicenceMail::compose([licenceRecord(['registeredTo' => '<script>alert(1)</script> & "Co"'])], 'https://recoverx.snapkio.com/');
+    $html = $mail['html'];
+
+    Assert::matches('/^<!DOCTYPE html>\n<html lang="en"/', $html);
+    Assert::true(str_contains($html, '<meta name="color-scheme" content="light dark">'), 'declares light and dark');
+    Assert::matches('#<td align="center" bgcolor="\#ffffff" class="rx-key" style="[^"]*font-size:17px;[^"]*">RECX-ABCDE-FGHJK-12345-MNPQR</td>#', $html);
+    foreach (['RecoverX Professional', '1 computer', 'Valid until 12 November 2027', 'href="https://recoverx.snapkio.com/download/"', 'Download RecoverX',
+        'Open RecoverX and choose Licence', 'Paste the key and choose Activate', 'Keep this e-mail.', 'Remove from this computer', 'Just reply to this e-mail',
+        'Hello &lt;script&gt;alert(1)&lt;/script&gt; &amp; &quot;Co&quot;,', 'RecoverX</strong> by Appsgain Technologies', 'href="mailto:info@appsgain.in"'] as $expected) {
+        Assert::true(str_contains($html, $expected), "HTML contains {$expected}");
+    }
+    Assert::notContains('<script', $html, 'the name is escaped');
+    Assert::notContains('<img', $html, 'no images to block or to track with');
+    Assert::matches('/^Hello <script>alert\(1\)<\/script> & "Co",\n/', $mail['text']);
+});
+
+test('builds e-mail links only from checked pieces', function (): void {
+    Assert::same('tel:+919876543210', EmailHtml::tel('+91 9876543210'));
+    Assert::same('https://wa.me/919876543210', EmailHtml::whatsapp('+91 9876543210'));
+    Assert::same('https://wa.me/15551234567?text=Hi%20%26%20bye', EmailHtml::whatsapp('+1 5551234567', 'Hi & bye'));
+    foreach (['9876543210', '+91 98765-43210', '+91 9876543210;x', 'javascript:alert(1)', '+1 23', '+12345678901234567', "+91 98765\n43210", ''] as $bad) {
+        Assert::same(null, EmailHtml::tel($bad), json_encode($bad));
+        Assert::same(null, EmailHtml::whatsapp($bad), json_encode($bad));
+    }
+
+    Assert::same('mailto:jane@example.com', EmailHtml::mailto('jane@example.com'));
+    Assert::same('mailto:a%26b%3Fc@example.com?subject=Your%20RecoverX%20order%20RX-1', EmailHtml::mailto('a&b?c@example.com', 'Your RecoverX order RX-1'));
+    foreach (['Jane <jane@example.com>', 'jane', "jane@example.com\r\nBcc: x@example.com", 'javascript:alert(1)//@example.com'] as $bad) {
+        Assert::same(null, EmailHtml::mailto($bad), json_encode($bad));
+    }
+
+    Assert::same('https://recoverx.snapkio.com/download/', EmailHtml::siteUrl('https://recoverx.snapkio.com/', '/download/'));
+    Assert::same('https://licensing.test:8443/rx/admin/?page=order&id=7', EmailHtml::siteUrl('https://licensing.test:8443/rx', '/admin/?page=order&id=7'));
+    foreach (['http://recoverx.snapkio.com', 'javascript:alert(1)//', 'https://evil.test/"onmouseover="x', 'https://evil.test/<b>', '//recoverx.snapkio.com', ''] as $bad) {
+        Assert::same(null, EmailHtml::siteUrl($bad, '/download/'), json_encode($bad));
+    }
+    Assert::same(null, EmailHtml::siteUrl('https://recoverx.snapkio.com', 'download/"x'), 'the path is checked too');
+
+    Assert::same('', EmailHtml::button(null, 'Open'), 'no button without a safe address');
+    Assert::same('Jane &amp; Co', EmailHtml::link(null, 'Jane & Co'));
+});
+
+test('escapes every value it is given, and keeps the line breaks of quoted text', function (): void {
+    Assert::same('&lt;b&gt;&quot;x&quot; &amp; &apos;y&apos;&lt;/b&gt;', EmailHtml::e('<b>"x" & \'y\'</b>'));
+    Assert::same("one<br>\ntwo &lt;i&gt;", EmailHtml::multiline("one\r\ntwo <i>"));
+    Assert::same("\u{FFFD}", EmailHtml::e("\xFF"), 'broken UTF-8 is replaced, not passed through');
+
+    $html = EmailHtml::document(
+        title: '<t>', preheader: '<p>', eyebrow: '<e>', heading: '<h>', subheading: '<s>',
+        badgeHtml: EmailHtml::pill('<pill>'), bodyHtml: EmailHtml::rows([['<label>', EmailHtml::e('<value>')], ['Empty', '']]) . EmailHtml::quote("<q>\nline"),
+        footnote: '<f>',
+    );
+    foreach (['<t>', '<p>', '<e>', '<h>', '<s>', '<pill>', '<label>', '<value>', '<q>', '<f>'] as $raw) {
+        Assert::notContains($raw, $html, "{$raw} is escaped");
+        Assert::true(str_contains($html, EmailHtml::e($raw)), "{$raw} is there, escaped");
+    }
+    Assert::notContains('>Empty<', $html, 'an empty row is left out');
+    Assert::true(str_contains($html, '&lt;q&gt;<br>' . "\n" . 'line'), 'line breaks kept');
+    Assert::true(str_contains($html, 'bgcolor="#3b6fe0"') && str_contains($html, 'linear-gradient(135deg,#3b6fe0 0%,#7c4de8 100%)'), 'solid colour under the gradient');
+    Assert::true(str_contains($html, '@media (prefers-color-scheme: dark)') && str_contains($html, '@media only screen and (max-width:600px)'), 'phone and dark-mode extras');
 });

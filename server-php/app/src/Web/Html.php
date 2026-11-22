@@ -752,6 +752,18 @@ final class Html
         .badge.expired { --t: var(--amber); --tb: var(--amber-bg); --tl: var(--amber-line); --d: var(--amber-dot); }
         .badge.revoked { --t: var(--red); --tb: var(--red-bg); --tl: var(--red-line); --d: var(--red-dot); }
         .badge.unused { --t: var(--slate); --tb: var(--slate-bg); --tl: var(--slate-line); --d: var(--slate-dot); }
+        /* Orders from the website form: the label is shown as written ("Licence sent"). */
+        .badge[data-order] { text-transform: none; }
+        .badge[data-order="new"] { --t: var(--blue); --tb: var(--blue-bg); --tl: var(--blue-line); --d: var(--blue-dot); }
+        .badge[data-order="new"]::before { animation: rx-pulse 2.4s ease-out infinite; }
+        .badge[data-order="contacted"] { --t: var(--indigo); --tb: var(--indigo-bg); --tl: var(--indigo-line); --d: var(--indigo-dot); }
+        .badge[data-order="paid"] { --t: var(--teal); --tb: var(--teal-bg); --tl: var(--teal-line); --d: var(--teal-dot); }
+        .badge[data-order="licensed"] { --t: var(--green); --tb: var(--green-bg); --tl: var(--green-line); --d: var(--green-dot); }
+        table.t-orders tr:has(.badge[data-order="new"]) { --row: var(--blue-dot); }
+        table.t-orders tr:has(.badge[data-order="licensed"]) { --row: var(--green-dot); }
+        table.t-orders tr:has(.badge[data-order="cancelled"]) td { color: var(--text-3); }
+        table.t-orders td:nth-child(4) { min-width: 13em; font-weight: 550; }
+        table.t-orders td:nth-child(4) .muted { font-weight: 400; font-size: 12.5px; color: var(--text-3); }
 
         /* ---- Buttons ------------------------------------------------------------ */
         button {
@@ -806,6 +818,8 @@ final class Html
         form:has(input[name="action"][value="api-disable"]) button { --icon: var(--i-power); }
         form:has(input[name="action"][value^="backup"]) button, form:has(input[name="action"][value="download-key"]) button { --icon: var(--i-download); }
         form:has(input[name="action"][value="prune-events"]) button { --icon: var(--i-trash); }
+        form:has(input[name="action"][value="order-update"]) button { --icon: var(--i-save); }
+        form:has(input[name="action"][value="order-delete"]) button { --icon: var(--i-trash); }
         form:has(input[name="action"][value="password"]) button { --icon: var(--i-lock); }
         form:has(input[name="action"][value="logout"]) button { --icon: var(--i-logout); }
         form:has(input[name="code"]) button[type="submit"] { --icon-on: inline-block; --icon: var(--i-check); }
@@ -903,6 +917,8 @@ final class Html
         .grid > .card > form:only-child:has(input[value="extend"]) > label:first-of-type { --t: var(--indigo); --tb: var(--indigo-bg); --icon: var(--i-calendar); }
         .grid > .card > form:only-child:has(input[value="offline"]) > label:first-of-type { --t: var(--cyan); --tb: var(--cyan-bg); --icon: var(--i-wifi-off); }
         .grid > .card > form:only-child:has(input[value="reset"]) > label:first-of-type { --t: var(--orange); --tb: var(--orange-bg); --icon: var(--i-refresh); }
+        .grid > .card > form:only-child:has(input[value="order-update"]) > label:first-of-type { --t: var(--indigo); --tb: var(--indigo-bg); --icon: var(--i-save); }
+        .grid > .card > form:only-child:has(input[value="order-delete"]) > label:first-of-type { --t: var(--red); --tb: var(--red-bg); --icon: var(--i-trash); }
         /* Action cards: buttons line up along the bottom of each row. */
         .grid > .card:has(> form:only-child) { display: flex; flex-direction: column; }
         .grid > .card > form:only-child { flex: 1; display: flex; flex-direction: column; align-items: stretch; }
