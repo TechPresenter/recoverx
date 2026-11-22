@@ -22,6 +22,7 @@ Everything here was checked against Microsoft Store Policies **v7.20** (publishe
 
 ## Where things stand (12 November 2026)
 
+- **Live (20 November 2026).** The MSIX product **"RecoverX Data Recovery"** (Store ID `9P7VHFQ36L0B`) passed certification, `allowElevation` included, and is in the Microsoft Store: https://apps.microsoft.com/detail/9P7VHFQ36L0B (deep link `ms-windows-store://pdp/?ProductId=9P7VHFQ36L0B`). Store updates go through **Start update** on that product, with a new MSIX built as in section 11. The EXE/MSI product below stays unsubmitted; it only holds the name "RecoverX".
 - **Partner Center.** The **Company** account is registered and verified. The product **RecoverX** (EXE or MSI app, product ID `96a12f93-6602-4b98-939a-541e80154823`) was reserved on 12 November 2026, replacing an earlier reservation under the product's former name, since deleted; a reserved name lapses after three months without a submission, so submit by about **10 February 2027**. **Availability**, **Properties** (with the recoverx.snapkio.com URLs) and **Age ratings** are saved; nothing has been submitted.
 - **Hosting.** Everything public lives on one host the vendor controls, `recoverx.snapkio.com`: one AWS EC2 server in Mumbai (Apache, PHP 8.3, no CDN; see deploy/aws-ec2/README.md). The installed app links only there and to appsgain.in.
 

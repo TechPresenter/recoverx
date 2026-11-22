@@ -78,6 +78,7 @@ Sign in at **https://recoverx.snapkio.com/admin/** with your admin password. You
 | Page             | What it is for                                                                                                                                                                                                                                             |
 | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Dashboard**    | Licences by edition and status, computers activated now, the latest activity, and how the server is configured.                                                                                                                                            |
+| **Orders**       | Requests from the website's order form: search, filter by status, follow up, create their licences, delete. See [The order form](#the-order-form).                                                                                                         |
 | **Licences**     | Search by part of a key, a name, an e-mail address or an order reference; filter by edition and status. Click a key for its details.                                                                                                                       |
 | **Licence page** | Everything about one licence: its computers, its history, and the actions — revoke / restore, change the end date (renewal), release one computer, reset all computers, issue an offline activation, and correct or erase the customer's personal details. |
 | **Create**       | Make new licence keys. Shows each key once, with a Copy button.                                                                                                                                                                                            |
@@ -155,9 +156,10 @@ Every activation, move and refusal is recorded with the internet address it came
 - **Once a day, with no cron job to set up.** Shared hosting gives the server nothing that runs on a timer, so the first request after a day has passed — a customer activating, a health check, you opening the admin panel — does the clean-up after it has been answered. A site nobody visits for a week catches up on the next visit.
 - **The monthly log files too.** `data/logs/licensing-<year>-<month>.log` records each request's address, so a log file is deleted as well once its whole month is older than the retention.
 - **The other records named after addresses.** The rate limiter keeps a counter per address; the same clean-up deletes every counter that has refilled (with the default limits, within a minute of the last request), and any older than the retention whatever the limits. Failed admin sign-ins are deleted after a day.
+- **Orders from the website form.** Each is deleted 24 months after it last changed (its status or notes), whatever `event_retention_days` says. The licences made for it stay.
 - **Now, by hand.** **Backup → Activation history** shows how many entries are past the retention and when the last clean-up ran; **Delete old history now** does it at once.
 
-Deleted means gone from the file, not only hidden: the database overwrites what it deletes, and each clean-up empties its write-ahead log (`licences.db-wal`), so an address does not linger in free space. Each clean-up writes a `"Pruned the event log"` line to the log, with how many entries, counters and failed sign-ins went. Licences, and the list of computers each was activated on, are never deleted — only the history. Restoring an older database snapshot brings back history that had already been deleted; the next day's clean-up removes it again. Snapshots you have downloaded keep what they held: delete old ones once they are past the retention too.
+Deleted means gone from the file, not only hidden: the database overwrites what it deletes, and each clean-up empties its write-ahead log (`licences.db-wal`), so an address does not linger in free space. Each clean-up writes a `"Pruned the event log"` line to the log, with how many entries, counters, failed sign-ins and orders went. Licences, and the list of computers each was activated on, are never deleted — only the history. Restoring an older database snapshot brings back history that had already been deleted; the next day's clean-up removes it again. Snapshots you have downloaded keep what they held: delete old ones once they are past the retention too.
 
 ### Requests about personal data
 
@@ -209,6 +211,7 @@ return [
 | `mail_from_name`           | `'RecoverX'` | The name shown next to it (letters, digits, spaces, dots, hyphens).                                                                                                                                                                                                                                                                                                                                   |
 | `mail_reply_to`            | `''`         | Where customers' replies go, e.g. `'info@appsgain.in'`. Empty: replies go to `mail_from`.                                                                                                                                                                                                                                                                                                             |
 | `ses_region`               | `''`         | The Amazon SES region the sending domain is verified in, e.g. `'ap-south-1'`. Required with `mail_from`.                                                                                                                                                                                                                                                                                              |
+| `order_notify_to`          | `[]`         | Who receives the website order form (`/order/`), e.g. `['sales@example.com']`; up to 5 addresses. Empty: `mail_reply_to`. Needs `mail_from`. See [The order form](#the-order-form).                                                                                                                                                                                                                   |
 
 A mistake in this file stops the server with a message in the log, rather than running half-configured.
 
@@ -233,6 +236,31 @@ return [
 ```
 
 On a host that is not EC2 (Hostinger) leave `mail_from` empty: there is no role to send with.
+
+### The order form
+
+The website's /buy/ page posts its order form to `/order/` (`public/order/index.php`). It asks for the edition, the number of licences, the customer's **name, e-mail address and mobile number** (all three required; the mobile number has a country selector, India +91 by default), and optionally who the licence is registered to, a GSTIN and a message.
+
+What happens to a request:
+
+1. **It is stored** in the database, in the private `orders` table (the Node reference server ignores it), under a reference such as `RX-1A2B3C4D`. The mobile number is stored with its country code, e.g. `+91 9876543210`.
+2. **It is e-mailed** through SES to `order_notify_to`, with Reply-To set to the customer. The e-mail carries the reference, the mobile number and a link to the order in the admin panel.
+3. **The customer gets a short confirmation** with the edition, the number of licences and the reference — nothing they typed, so the form cannot be used to send a stranger a message. At most one a day per address.
+4. **The visitor lands on** the static `/buy/sent/` page when the order was stored _or_ e-mailed (the vendor has it either way), and on `/buy/error/` only when both failed. With e-mail off (`mail_from` empty) orders are still stored, and still count as sent.
+
+**Admin panel → Orders** lists them newest first, with the number of new ones beside the link and on the Dashboard. Search by name, e-mail, mobile number, reference, "register to" or GSTIN, and filter by status. An order's page shows everything the customer sent (the e-mail and mobile number are links), and has:
+
+- **Status and notes** for your follow-up — **New** → **Contacted** → **Paid** → **Licence sent**, or **Cancelled**. The customer never sees either.
+- **Create licence for this order** — opens Create filled in from the order (edition, name, e-mail, number of keys, and the reference as the order reference). Creating the licences marks the order **Licence sent**, and they are listed on the order's page.
+- **Delete this order** — for spam, or a customer who asks to be deleted; tick the box to confirm. Licences already created are kept.
+
+Orders are deleted automatically **24 months after they last changed**, by the same daily clean-up as the activation history (see [Activation history and privacy](#activation-history-and-privacy)).
+
+Abuse limits: a hidden field people leave empty (robots that fill it are told it worked and nothing is stored or sent), a post from another site's page is refused by its Origin header, and token buckets allow 5 requests per address (then 5 an hour) and 100 overall (then 200 a day). Put the recipients in `config.local.php` on the server, never in the repository:
+
+```php
+'order_notify_to' => ['info@appsgain.in', 'owner@example.com'],
+```
 
 ---
 

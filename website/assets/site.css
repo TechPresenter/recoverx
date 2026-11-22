@@ -2388,6 +2388,164 @@ ol {
   margin-top: 18px;
 }
 
+/* ----- /buy/ order form ----------------------------------------------------- */
+.order-lead {
+  color: var(--text-2);
+}
+.order-form {
+  margin-top: 22px;
+  padding: clamp(20px, 3vw, 30px);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+  display: grid;
+  gap: 18px;
+}
+.order-editions {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+}
+.order-editions legend {
+  font-weight: 650;
+  margin-bottom: 10px;
+}
+.order-choice {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--bg);
+  cursor: pointer;
+  transition:
+    border-color 0.15s var(--ease),
+    box-shadow 0.15s var(--ease);
+}
+.order-choice:hover {
+  border-color: var(--brand-a);
+}
+.order-choice:has(input:checked) {
+  border-color: var(--brand-a);
+  box-shadow: 0 0 0 1px var(--brand-a);
+  background: var(--chip-bg);
+}
+.order-choice input {
+  margin-top: 3px;
+  accent-color: var(--brand-a);
+}
+.order-choice-text {
+  display: grid;
+  gap: 2px;
+}
+.order-choice-text span {
+  font-size: 14px;
+  color: var(--text-2);
+}
+.order-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+.order-form .field {
+  display: grid;
+  gap: 6px;
+}
+.order-form label {
+  font-weight: 600;
+  font-size: 15px;
+}
+.order-form .opt {
+  font-weight: 400;
+  color: var(--text-2);
+}
+.order-form input[type='text'],
+.order-form input[type='email'],
+.order-form input[type='tel'],
+.order-form input[type='number'],
+.order-form select,
+.order-form textarea {
+  width: 100%;
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--line-2, var(--line));
+  border-radius: var(--r-sm);
+  padding: 10px 12px;
+  min-height: 44px;
+}
+.order-form textarea {
+  resize: vertical;
+  min-height: 110px;
+}
+/* Mobile number: the country code list and the number on one row. The list
+   takes a share of the row (never more than 12rem) so that at 320px the
+   number still has room for ten digits. */
+.phone-row {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+.order-form .phone-row select {
+  flex: none;
+  width: clamp(7.5rem, 42%, 12rem);
+  min-width: 0;
+  padding-inline: 10px 6px;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.order-form .phone-row input {
+  flex: 1 1 0;
+  width: auto;
+  min-width: 0;
+}
+.order-form select option {
+  color: var(--text);
+  background: var(--bg);
+}
+.order-form input:focus-visible,
+.order-form select:focus-visible,
+.order-form textarea:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+  border-color: var(--focus);
+}
+.order-form input:user-invalid,
+.order-form select:user-invalid,
+.order-form textarea:user-invalid {
+  border-color: var(--g-poor);
+}
+.order-trap {
+  position: absolute;
+  left: -10000px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+.order-note {
+  font-size: 14px;
+  color: var(--text-2);
+}
+.order-form .btn {
+  justify-self: start;
+}
+.order-alt {
+  margin-top: 14px;
+  font-size: 15px;
+  color: var(--text-2);
+}
+.order-reasons {
+  margin: 8px 0 20px;
+  padding-left: 1.2em;
+  display: grid;
+  gap: 6px;
+}
+
 /* ----- /download/ --------------------------------------------------------- */
 .download-card {
   padding: clamp(24px, 3.5vw, 36px);

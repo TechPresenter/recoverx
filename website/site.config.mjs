@@ -32,8 +32,8 @@
  * @typedef {object} SiteConfig
  * @property {string} origin Scheme and host, no trailing slash.
  * @property {string} productName
- * @property {{ legalName: string, shortName: string, address: string[], town: string, url: string }} vendor
- *   `town` is what the footer shows; the full `address` is on /support/.
+ * @property {{ legalName: string, shortName: string, url: string }} vendor
+ *   No postal address is published (vendor decision, 22 Nov 2026): name and email only.
  * @property {string} email Sales, support, privacy and licensing — one mailbox.
  * @property {number} copyrightYear
  * @property {string | null} paymentLinkUrl
@@ -51,13 +51,6 @@ export const site = {
   vendor: {
     legalName: 'Appsgain Technologies Private Limited',
     shortName: 'Appsgain Technologies',
-    address: [
-      '22, Appsgain Technologies Building',
-      'Goraul Block, Katarmala Road, Adampur',
-      'Hajipur, Vaishali, Bihar 844114',
-      'India',
-    ],
-    town: 'Hajipur, Bihar, India',
     url: 'https://appsgain.in',
   },
 
@@ -76,7 +69,8 @@ export const site = {
   // The Store page's https:// URL once Partner Center publishes it (for
   // example https://apps.microsoft.com/detail/<product id>). While `null`, the
   // site says "Coming soon to the Microsoft Store" instead of linking to it.
-  storeUrl: null,
+  // Live since 20 November 2026: the MSIX product "RecoverX Data Recovery".
+  storeUrl: 'https://apps.microsoft.com/detail/9P7VHFQ36L0B',
 
   // --- CODE SIGNING ----------------------------------------------------------
   // `false` while the published installer is not Authenticode-signed (1.0.0

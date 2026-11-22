@@ -1,3 +1,4 @@
+import { DEFAULT_PHONE_COUNTRY, PHONE_PATTERN, phoneCountries } from './calling-codes.mjs'
 import { markup, trusted } from './html.mjs'
 import { installerPath } from './content.mjs'
 import { icon } from './layout.mjs'
@@ -69,41 +70,56 @@ export function formatSize(bytes) {
 }
 
 /**
- * A mailto: link that starts the email for the customer. Only the subject
- * and a template body are put in the address — nothing about the visitor.
- *
- * @param {SiteConfig} site
- * @param {string} subject
- * @param {string} [body]
+ * Where every "Order" button leads: the order form on /buy/, which posts to
+ * the licence server's /order/ (server-php/app/src/Order/OrderForm.php).
  */
-function mailto(site, subject, body) {
-  const parts = [`subject=${encodeURIComponent(subject)}`]
-  // RFC 6068: line breaks in a mailto body are CRLF.
-  if (body !== undefined) parts.push(`body=${encodeURIComponent(body.replace(/\n/gu, '\r\n'))}`)
-  return `mailto:${site.email}?${parts.join('&')}`
-}
+const ORDER_FORM = '/buy/#order'
 
 /**
+ * The order form. No script: the browser checks the fields, the server checks
+ * them again, and the answer is a redirect to /buy/sent/ or /buy/error/. The
+ * field names, limits and edition ids must match OrderForm.php; the mobile
+ * number's country list is the server's own (lib/calling-codes.mjs).
+ *
  * @param {SiteConfig} site
- * @param {Edition} edition
+ * @returns {Html}
  */
-function purchaseEmail(site, edition) {
-  return mailto(
-    site,
-    `${site.productName} ${edition.name} licence`,
-    [
-      `Edition: ${edition.name}`,
-      'Number of licences: 1',
-      'Register the licence to (your name or your organisation): ',
-      'Email address for the licence key: ',
-      '',
-    ].join('\n'),
-  )
-}
+function orderForm(site) {
+  const choices = site.editions
+    .filter((edition) => edition.id !== 'free')
+    .map(
+      (edition) => markup`<label class="order-choice">
+<input type="radio" name="edition" value="${edition.id}" required>
+<span class="order-choice-text"><b>${edition.name}</b><span>${edition.priceInr === null ? 'Price on request' : `${formatInr(edition.priceInr)} / year`} · ${edition.computers}</span></span>
+</label>`,
+    )
 
-/** @param {SiteConfig} site */
-function enterpriseEmail(site) {
-  return mailto(site, `${site.productName} Enterprise licensing`)
+  const countries = phoneCountries().map(
+    (country) =>
+      markup`<option value="${country.iso}"${country.iso === DEFAULT_PHONE_COUNTRY && markup` selected`}>${country.name} (+${country.dial})</option>`,
+  )
+
+  return markup`<form class="order-form" method="post" action="/order/" accept-charset="utf-8">
+<fieldset class="order-editions">
+<legend>Edition</legend>
+${choices}
+</fieldset>
+<div class="order-grid">
+<div class="field"><label for="order-name">Your name</label><input id="order-name" name="name" type="text" maxlength="200" autocomplete="name" required></div>
+<div class="field"><label for="order-email">Email for the licence key</label><input id="order-email" name="email" type="email" maxlength="254" autocomplete="email" required></div>
+<div class="field"><label for="order-phone">Mobile number</label><div class="phone-row"><label class="sr-only" for="order-phone-country">Country code</label><select id="order-phone-country" name="phoneCountry" required>
+${countries}
+</select><input id="order-phone" name="phone" type="tel" inputmode="tel" autocomplete="tel-national" maxlength="20" pattern="${PHONE_PATTERN}" required title="Digits only — choose the country code from the list"></div></div>
+<div class="field"><label for="order-quantity">Number of licences</label><input id="order-quantity" name="quantity" type="number" inputmode="numeric" min="1" max="100" value="1" required></div>
+<div class="field"><label for="order-register">Register the licence to <span class="opt">(optional)</span></label><input id="order-register" name="registerTo" type="text" maxlength="200" placeholder="You or your organisation"></div>
+<div class="field"><label for="order-gstin">GSTIN for the invoice <span class="opt">(optional)</span></label><input id="order-gstin" name="gstin" type="text" maxlength="15" pattern="[0-9A-Za-z]{15}" title="15 letters and digits"></div>
+</div>
+<div class="field"><label for="order-message">Message <span class="opt">(optional)</span></label><textarea id="order-message" name="message" rows="4" maxlength="2000"></textarea></div>
+<div class="order-trap" aria-hidden="true"><label for="order-nectar">Leave this field empty</label><input id="order-nectar" name="nectar" type="text" tabindex="-1" autocomplete="off"></div>
+<p class="order-note">We use these details only to send you payment details and your licence — see the <a href="/privacy/">privacy policy</a>.</p>
+<button class="btn btn-primary" type="submit">${icon('arrow')}Send order request</button>
+</form>
+<p class="order-alt">Prefer email? Write to <a href="mailto:${site.email}">${site.email}</a> with the edition and the number of licences.</p>`
 }
 
 /**
@@ -274,12 +290,12 @@ function plans(site, { payOnline }) {
       /** @type {Html} */
       let action
       if (enterprise) {
-        action = markup`<a class="btn btn-outline btn-block" href="${enterpriseEmail(site)}">${icon('mail')}Contact us</a>`
+        action = markup`<a class="btn btn-outline btn-block" href="${ORDER_FORM}">${icon('chat')}Ask for a quote</a>`
       } else if (payOnline && site.paymentLinkUrl !== null) {
         action = markup`<a class="btn ${primary} btn-block" href="${site.paymentLinkUrl}">Pay online</a>
-<a class="alt-link" href="${purchaseEmail(site, edition)}">Buy by email</a>`
+<a class="alt-link" href="${ORDER_FORM}">Order with the form</a>`
       } else {
-        action = markup`<a class="btn ${primary} btn-block" href="${purchaseEmail(site, edition)}">${icon('mail')}Buy by email</a>`
+        action = markup`<a class="btn ${primary} btn-block" href="${ORDER_FORM}">${icon('arrow')}Order</a>`
       }
 
       return markup`<article class="plan${pick ? ' pick' : ''}" aria-labelledby="plan-${edition.id}">
@@ -309,8 +325,8 @@ ${cards}
 /** @returns {Html} */
 function buySteps() {
   return markup`<ol class="buy-steps" aria-label="How buying works">
-<li><span class="n" aria-hidden="true">1</span>Email us the edition you want</li>
-<li><span class="n" aria-hidden="true">2</span>We reply with how to pay</li>
+<li><span class="n" aria-hidden="true">1</span>Send the order form</li>
+<li><span class="n" aria-hidden="true">2</span>We email you how to pay</li>
 <li><span class="n" aria-hidden="true">3</span>Your licence key arrives by email</li>
 </ol>`
 }
@@ -980,18 +996,15 @@ export function buyPage(site, installer) {
 ${freeStrip(installer)}
 ${plans(site, { payOnline: true })}
 ${buySteps()}
-${priceNote(site, markup`<a href="#how-to-buy">How to buy</a>`)}
+${priceNote(site, markup`<a href="#order">How to order</a>`)}
 </div>
 </section>
 
-<section class="band light tight" aria-labelledby="how-to-buy">
+<section class="band light tight" id="order" aria-labelledby="order-title">
 <div class="wrap narrow">
-<h2 class="sub-h" id="how-to-buy">How to buy</h2>
-<ol class="numbered">
-<li>Email <a href="mailto:${site.email}">${site.email}</a> with the edition and how many licences you need, the name each licence should be registered to (you or your organisation), and the address the key should be sent to. The <strong>Buy by email</strong> buttons above start that email for you.</li>
-<li>We reply with how to pay.</li>
-<li>Once the payment has been received, we email your licence key. Enter it on the Licence screen in ${site.productName} — see <a href="/support/#activate-online">activating a licence</a>.</li>
-</ol>
+<h2 class="sub-h" id="order-title">Order a licence</h2>
+<p class="order-lead">Send this form and we email you how to pay, usually within one business day. Once the payment has been received, your licence key follows by email; enter it on the Licence screen in ${site.productName} — see <a href="/support/#activate-online">activating a licence</a>.</p>
+${orderForm(site)}
 ${payOnline}
 ${knowPanel({
   id: 'good-to-know',
@@ -1031,6 +1044,85 @@ ${finalCta(site, installer, { href: '/support/', label: 'Read the documentation'
     title: `Editions and pricing — ${site.productName}`,
     description: `${site.productName} editions: Free (1 GB of recovery), Professional ₹2,499, Business ₹5,999 and Technician ₹14,999 per year, and Enterprise licensing. How to buy.`,
     nav: 'buy',
+    main,
+  }
+}
+
+// --- Order form outcomes (redirect targets of the licence server's /order/) ---------
+
+/**
+ * @param {SiteConfig} site
+ * @param {Installer | null} installer
+ * @returns {Page}
+ */
+export function orderSentPage(site, installer) {
+  const main = markup`${pageHero({
+    kicker: 'Order',
+    title: 'Thank you — your order request is on its way',
+    lead: 'We have received it and will reply by email with how to pay, usually within one business day.',
+  })}
+
+<section class="band light tight" aria-labelledby="next-title">
+<div class="wrap narrow">
+<h2 class="sub-h" id="next-title">What happens next</h2>
+<ol class="numbered">
+<li>Look out for our email from ${site.email} — check the spam folder too.</li>
+<li>Pay as it describes.</li>
+<li>Your licence key arrives by email. Enter it on the Licence screen in ${site.productName} — see <a href="/support/#activate-online">activating a licence</a>.</li>
+</ol>
+<p>Not heard from us within two business days? Email <a href="mailto:${site.email}">${site.email}</a>.</p>
+<div class="cta-row">
+<a class="btn btn-primary" href="/download/">${icon('download')}${downloadLabel(installer, `Download ${site.productName}`, 'Download — coming soon')}</a>
+<a class="btn btn-outline" href="/">Home</a>
+</div>
+</div>
+</section>`
+
+  return {
+    path: '/buy/sent/',
+    file: 'buy/sent/index.html',
+    title: `Order request sent — ${site.productName}`,
+    description: 'Your order request has been sent.',
+    nav: 'buy',
+    noindex: true,
+    main,
+  }
+}
+
+/**
+ * @param {SiteConfig} site
+ * @returns {Page}
+ */
+export function orderErrorPage(site) {
+  const main = markup`${pageHero({
+    kicker: 'Order',
+    title: 'Your order request could not be sent',
+    lead: 'Nothing was sent. Please try again in a few minutes, or email us instead.',
+  })}
+
+<section class="band light tight" aria-labelledby="why-title">
+<div class="wrap narrow">
+<h2 class="sub-h" id="why-title">Why this can happen</h2>
+<ul class="order-reasons">
+<li>A required field was empty or not in the expected form (for example the email address or the mobile number).</li>
+<li>Several requests came from your connection in a short time; wait an hour and send it again.</li>
+<li>Our mail service was briefly unavailable.</li>
+</ul>
+<p>Use your browser's Back button to return to the form with what you typed still filled in.</p>
+<div class="cta-row">
+<a class="btn btn-primary" href="${ORDER_FORM}">Back to the order form</a>
+<a class="btn btn-outline" href="mailto:${site.email}">${icon('mail')}Email ${site.email}</a>
+</div>
+</div>
+</section>`
+
+  return {
+    path: '/buy/error/',
+    file: 'buy/error/index.html',
+    title: `Order request not sent — ${site.productName}`,
+    description: 'Your order request could not be sent.',
+    nav: 'buy',
+    noindex: true,
     main,
   }
 }
@@ -1193,7 +1285,6 @@ ${knowPanel({
 </ul>
 <address class="address-card">
 <strong>${site.vendor.legalName}</strong><br>
-${site.vendor.address.map((line, index) => (index === 0 ? line : markup`<br>${line}`))}<br>
 <a href="mailto:${site.email}">${site.email}</a> · <a href="${site.vendor.url}">${site.vendor.url.replace(/^https:\/\//u, '')}</a>
 </address>
 </section>
@@ -1261,7 +1352,11 @@ ${storeButton(site, 'paper')}`
 ${
   site.installerCodeSigned
     ? ''
-    : markup`<p class="types-note">${icon('info')}<span>This first build is not yet code-signed, so Windows SmartScreen may show “Windows protected your PC”. Choose <strong>More info</strong>, then <strong>Run anyway</strong> — after checking the SHA-256 above. A signed build will follow and reaches existing installations as an update.</span></p>`
+    : markup`<p class="types-note">${icon('info')}<span>This first build is not yet code-signed, so Windows SmartScreen may show “Windows protected your PC”. Choose <strong>More info</strong>, then <strong>Run anyway</strong> — after checking the SHA-256 above. A signed build will follow and reaches existing installations as an update.${
+        site.storeUrl === null
+          ? ''
+          : markup` Or install RecoverX from the <a href="${site.storeUrl}">Microsoft Store</a> instead: Microsoft signs that copy, so Windows shows no such warning, and the Store keeps it up to date.`
+      }</span></p>`
 }
 ${storeButton(site, 'paper')}`
 

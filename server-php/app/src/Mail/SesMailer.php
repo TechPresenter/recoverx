@@ -59,26 +59,44 @@ final class SesMailer
     }
 
     /**
-     * Send one message to one address.
+     * Send one message to one or more addresses. `$replyTo` overrides the
+     * configured Reply-To for this message (an order notification is answered
+     * to the customer, not to ourselves).
      *
+     * @param string|list<string> $to
      * @return string the SES message id
      */
-    public function send(string $to, string $subject, string $text): string
+    public function send(string|array $to, string $subject, string $text, ?string $replyTo = null): string
     {
-        if (!self::isAddress($to)) {
-            throw new MailError('"' . $to . '" is not an e-mail address that can be sent to.');
+        $recipients = is_array($to) ? array_values($to) : [$to];
+        if ($recipients === [] || count($recipients) > 50) {
+            throw new MailError('An e-mail needs between 1 and 50 recipients.');
+        }
+        foreach ($recipients as $address) {
+            if (!is_string($address) || !self::isAddress($address)) {
+                throw new MailError('"' . (is_string($address) ? $address : gettype($address)) . '" is not an e-mail address that can be sent to.');
+            }
+        }
+
+        $reply = $replyTo ?? $this->replyTo;
+        if ($reply !== null && !self::isAddress($reply)) {
+            throw new MailError('"' . $reply . '" is not an e-mail address replies can go to.');
+        }
+
+        if (preg_match('/[\x00-\x1F\x7F]/', $subject) === 1) {
+            throw new MailError('An e-mail subject cannot contain line breaks or control characters.');
         }
 
         $payload = [
             'FromEmailAddress' => $this->fromLine(),
-            'Destination' => ['ToAddresses' => [$to]],
+            'Destination' => ['ToAddresses' => $recipients],
             'Content' => ['Simple' => [
                 'Subject' => ['Data' => $subject, 'Charset' => 'UTF-8'],
                 'Body' => ['Text' => ['Data' => $text, 'Charset' => 'UTF-8']],
             ]],
         ];
-        if ($this->replyTo !== null) {
-            $payload['ReplyToAddresses'] = [$this->replyTo];
+        if ($reply !== null) {
+            $payload['ReplyToAddresses'] = [$reply];
         }
 
         $body = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);

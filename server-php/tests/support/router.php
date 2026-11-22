@@ -41,7 +41,7 @@ if (
     return true;
 }
 
-foreach (['/admin', '/setup'] as $section) {
+foreach (['/admin', '/setup', '/order'] as $section) {
     if ($path === $section || $path === $section . '/' || $path === $section . '/index.php') {
         return $run($section . '/index.php');
     }

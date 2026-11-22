@@ -27,6 +27,11 @@ namespace RecoverX\Licensing;
  * (`Store::LOGIN_FAILURES_KEPT_MS`). The privacy policy lists the rate-limit
  * counters with the event log. The Node server keeps both in memory only.
  *
+ * Orders from the website form (`orders`, this server's alone) are deleted by
+ * the same pass once nothing has changed on them for 24 months
+ * (`ORDER_DAYS`), long enough to answer a customer about last year's
+ * purchase. The licences an order led to keep their own records.
+ *
  * Deleted means gone from the file: the store overwrites deleted rows
  * (`secure_delete`), and the write-ahead log is emptied after each pass, so
  * no address is left in free pages for a file-carving tool to find.
@@ -40,6 +45,9 @@ final class EventRetention
 {
     /** About 13 months: 365 + 30. */
     public const DEFAULT_DAYS = 395;
+
+    /** Orders are deleted this many days after they last changed: 24 months. */
+    public const ORDER_DAYS = 730;
 
     /** Automatic passes are at least this far apart. */
     public const INTERVAL_MS = Expiry::DAY_MS;
@@ -94,7 +102,7 @@ final class EventRetention
      * Delete everything past the retention now. Deleting what is already gone
      * deletes nothing, so a second pass is harmless.
      *
-     * @return array{deleted: int, cutoff: int, rateLimits: int, loginAttempts: int, logFiles: int}
+     * @return array{deleted: int, cutoff: int, rateLimits: int, loginAttempts: int, logFiles: int, orders: int}
      */
     public function prune(): array
     {
@@ -113,7 +121,7 @@ final class EventRetention
      * pass between them. A last pass dated in the future (the clock was set
      * back) counts as due rather than postponing every pass until then.
      *
-     * @return null|array{deleted: int, cutoff: int, rateLimits: int, loginAttempts: int, logFiles: int}
+     * @return null|array{deleted: int, cutoff: int, rateLimits: int, loginAttempts: int, logFiles: int, orders: int}
      */
     public function pruneIfDue(): ?array
     {
@@ -133,10 +141,10 @@ final class EventRetention
     /**
      * A pass's result as log fields, named as the Node server logs its own
      * passes (`Pruned the event log`), plus what only this server keeps: the
-     * log files, the rate-limit buckets and the failed sign-ins.
+     * log files, the rate-limit buckets, the failed sign-ins and the orders.
      *
-     * @param array{deleted: int, cutoff: int, rateLimits: int, loginAttempts: int, logFiles: int} $result
-     * @return array{deleted: int, retentionDays: int, cutoff: string, logFiles: int, rateLimits: int, loginAttempts: int}
+     * @param array{deleted: int, cutoff: int, rateLimits: int, loginAttempts: int, logFiles: int, orders: int} $result
+     * @return array{deleted: int, retentionDays: int, cutoff: string, logFiles: int, rateLimits: int, loginAttempts: int, orders: int}
      */
     public function logFields(array $result): array
     {
@@ -150,6 +158,7 @@ final class EventRetention
             'logFiles' => $result['logFiles'],
             'rateLimits' => $result['rateLimits'],
             'loginAttempts' => $result['loginAttempts'],
+            'orders' => $result['orders'],
         ];
     }
 
@@ -174,7 +183,7 @@ final class EventRetention
      * retention is the backstop for limits so slow that a bucket would take
      * longer to refill.
      *
-     * @return array{deleted: int, cutoff: int, rateLimits: int, loginAttempts: int}
+     * @return array{deleted: int, cutoff: int, rateLimits: int, loginAttempts: int, orders: int}
      */
     private function pass(int $now): array
     {
@@ -183,9 +192,11 @@ final class EventRetention
         $rateLimits = $this->store->deleteBucketsBefore($cutoff) + ($this->rateLimiter?->forgetRefilled($now) ?? 0);
         // A day is shorter than any retention, so this is the stricter rule.
         $loginAttempts = $this->store->deleteLoginFailuresBefore($now - Store::LOGIN_FAILURES_KEPT_MS);
+        // Orders have their own period, whatever the event retention.
+        $orders = $this->store->deleteOrdersBefore(Expiry::addDays($now, -self::ORDER_DAYS));
         $this->store->recordRunOf(self::TASK, $now);
 
-        return ['deleted' => $deleted, 'cutoff' => $cutoff, 'rateLimits' => $rateLimits, 'loginAttempts' => $loginAttempts];
+        return ['deleted' => $deleted, 'cutoff' => $cutoff, 'rateLimits' => $rateLimits, 'loginAttempts' => $loginAttempts, 'orders' => $orders];
     }
 
     /**
@@ -193,8 +204,8 @@ final class EventRetention
      * still hold old copies of the pages just cleared, then tidy the log
      * files. Neither can undo the pass, and neither fails it.
      *
-     * @param array{deleted: int, cutoff: int, rateLimits: int, loginAttempts: int} $result
-     * @return array{deleted: int, cutoff: int, rateLimits: int, loginAttempts: int, logFiles: int}
+     * @param array{deleted: int, cutoff: int, rateLimits: int, loginAttempts: int, orders: int} $result
+     * @return array{deleted: int, cutoff: int, rateLimits: int, loginAttempts: int, logFiles: int, orders: int}
      */
     private function afterPass(array $result): array
     {
@@ -204,7 +215,14 @@ final class EventRetention
             // Another request held the log; the next pass empties it.
         }
 
-        return $result + ['logFiles' => $this->pruneLogFiles($result['cutoff'])];
+        return [
+            'deleted' => $result['deleted'],
+            'cutoff' => $result['cutoff'],
+            'rateLimits' => $result['rateLimits'],
+            'loginAttempts' => $result['loginAttempts'],
+            'logFiles' => $this->pruneLogFiles($result['cutoff']),
+            'orders' => $result['orders'],
+        ];
     }
 
     /**
