@@ -154,7 +154,7 @@ test('stores the order, e-mails it to the vendor with Reply-To the customer, the
         'href="https://wa.me/919876543210?text=', 'href="mailto:jane@example.com?subject=Your%20RecoverX%20order%20request%20' . $ref . '"',
         '>Call</a>', '>WhatsApp</a>', '>E-mail</a>', '>Doe Studio</td>', '22AAAAA0000A1Z5', "Please send a GST invoice.<br>
 Thanks!",
-        'href="https://licensing.test/admin/?page=order&amp;id=1"', 'Open in admin panel', 'Reply-To is jane@example.com'] as $expected) {
+        'href="https://licensing.test/admin/?page=order&amp;id=1"', 'Open in admin panel', 'Replying to this e-mail answers the customer.'] as $expected) {
         Assert::true(str_contains($html, $expected), "notification HTML contains {$expected}");
     }
     Assert::notContains('?page=create', $html, 'no create link for a stored order');

@@ -276,7 +276,7 @@ final class EmailHtml
         [$background, $color] = self::TONES[$tone] ?? self::TONES['brand'];
 
         return '<span style="display:inline-block;margin:0 6px 6px 0;padding:5px 12px;border-radius:999px;background-color:' . $background . ';color:' . $color . ';'
-            . 'font-family:' . self::FONT . ';font-size:13px;line-height:18px;font-weight:600;">' . self::e($text) . '</span>';
+            . 'font-family:' . self::FONT . ';font-size:13px;line-height:18px;font-weight:600;">' . self::e($text) . '</span> ';
     }
 
     /** The white reference badge for the header band, e.g. "REFERENCE  RX-1A2B3C4D". */
@@ -404,8 +404,8 @@ final class EmailHtml
     public static function keyBox(string $key): string
     {
         return '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate;"><tr>'
-            . '<td align="center" bgcolor="#ffffff" class="rx-key" style="background-color:#ffffff;border:2px dashed ' . self::BRAND_A . ';border-radius:12px;padding:16px 12px;'
-            . 'font-family:' . self::MONO . ';font-size:21px;line-height:30px;font-weight:700;letter-spacing:1.5px;color:' . self::INK . ';'
+            . '<td align="center" bgcolor="#ffffff" class="rx-key" style="background-color:#ffffff;border:2px dashed ' . self::BRAND_A . ';border-radius:12px;padding:14px 6px;'
+            . 'font-family:' . self::MONO . ';font-size:17px;line-height:26px;font-weight:700;letter-spacing:0.5px;color:' . self::INK . ';'
             . '-webkit-user-select:all;user-select:all;word-break:keep-all;overflow-wrap:normal;">' . self::e($key) . '</td>'
             . '</tr></table>' . self::spacer(14);
     }

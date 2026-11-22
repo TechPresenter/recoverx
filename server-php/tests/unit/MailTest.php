@@ -227,7 +227,7 @@ test('the licence e-mail’s HTML shows the key large, the terms and the downloa
 
     Assert::matches('/^<!DOCTYPE html>\n<html lang="en"/', $html);
     Assert::true(str_contains($html, '<meta name="color-scheme" content="light dark">'), 'declares light and dark');
-    Assert::matches('#<td align="center" bgcolor="\#ffffff" class="rx-key" style="[^"]*font-size:21px;[^"]*">RECX-ABCDE-FGHJK-12345-MNPQR</td>#', $html);
+    Assert::matches('#<td align="center" bgcolor="\#ffffff" class="rx-key" style="[^"]*font-size:17px;[^"]*">RECX-ABCDE-FGHJK-12345-MNPQR</td>#', $html);
     foreach (['RecoverX Professional', '1 computer', 'Valid until 12 November 2027', 'href="https://recoverx.snapkio.com/download/"', 'Download RecoverX',
         'Open RecoverX and choose Licence', 'Paste the key and choose Activate', 'Keep this e-mail.', 'Remove from this computer', 'Just reply to this e-mail',
         'Hello &lt;script&gt;alert(1)&lt;/script&gt; &amp; &quot;Co&quot;,', 'RecoverX</strong> by Appsgain Technologies', 'href="mailto:info@appsgain.in"'] as $expected) {

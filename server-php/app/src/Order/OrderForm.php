@@ -389,7 +389,7 @@ final class OrderForm
                 . 'Once the customer has paid, create the licence by hand.', 'amber')
                 . EmailHtml::button(EmailHtml::siteUrl($site, '/admin/?page=create'), 'Create a licence')
             : EmailHtml::spacer(4) . EmailHtml::button(EmailHtml::siteUrl($site, '/admin/?page=order&id=' . (int) $saved['id']), 'Open in admin panel');
-        $next .= EmailHtml::text('Replying to this e-mail answers the customer: Reply-To is ' . EmailHtml::e($order['email']) . '.', 13, 400, 'muted', '0', 'center');
+        $next .= EmailHtml::text('Replying to this e-mail answers the customer.', 13, 400, 'muted', '0', 'center');
 
         return EmailHtml::document(
             title: 'New order request' . ($ref === null ? '' : " {$ref}"),
