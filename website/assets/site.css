@@ -2531,6 +2531,11 @@ ol {
   font-size: 14px;
   color: var(--text-2);
 }
+.order-form .field-hint {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--text-3);
+}
 .order-form .btn {
   justify-self: start;
 }

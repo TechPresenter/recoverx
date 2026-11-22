@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace RecoverX\Licensing;
 
+use RecoverX\Licensing\Order\OrderLimits;
+
 /**
  * How long the activation history is kept.
  *
@@ -189,7 +191,8 @@ final class EventRetention
     {
         $cutoff = Expiry::addDays($now, -$this->days);
         $deleted = $this->store->deleteEventsBefore($cutoff);
-        $rateLimits = $this->store->deleteBucketsBefore($cutoff) + ($this->rateLimiter?->forgetRefilled($now) ?? 0);
+        $rateLimits = $this->store->deleteBucketsBefore($cutoff) + ($this->rateLimiter?->forgetRefilled($now) ?? 0)
+            + OrderLimits::forgetRefilled($this->store, $now);
         // A day is shorter than any retention, so this is the stricter rule.
         $loginAttempts = $this->store->deleteLoginFailuresBefore($now - Store::LOGIN_FAILURES_KEPT_MS);
         // Orders have their own period, whatever the event retention.

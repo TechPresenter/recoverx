@@ -72,6 +72,11 @@ function sentText(FakeHttp $http, int $index): string
     return sentPayload($http, $index)['Content']['Simple']['Body']['Text']['Data'];
 }
 
+function sentHtml(FakeHttp $http, int $index): string
+{
+    return sentPayload($http, $index)['Content']['Simple']['Body']['Html']['Data'];
+}
+
 /** @return list<array<string, mixed>> the orders table's rows, as stored, oldest first */
 function storedOrders(App $app): array
 {
@@ -125,7 +130,7 @@ test('stores the order, e-mails it to the vendor with Reply-To the customer, the
         'register_to' => 'Doe Studio',
         'gstin' => '22AAAAA0000A1Z5',
         'message' => "Please send a GST invoice.\nThanks!",
-        'ip' => '203.0.113.7',
+        'ip' => null, // the sender's address stays in the request log only
         'notes' => null,
         'mailed_at' => Kit::NOW,
     ], $row);
@@ -141,6 +146,18 @@ test('stores the order, e-mails it to the vendor with Reply-To the customer, the
     }
     Assert::notContains('Phone:', $body, 'the number is the mobile');
     Assert::notContains('?page=create', $body, 'the stored order is the starting point');
+    Assert::true(str_contains($body, 'Received:     12 Nov 2026, 5:30 pm IST'), 'received, in India time');
+
+    $html = sentHtml($http, 0);
+    foreach ([$ref, 'New order request', 'Received 12 Nov 2026, 5:30 pm IST', 'Business <span', '&times;&nbsp;2', 'Each licence: 3 computers',
+        'List price: ₹5,999 per year', 'Estimated total', '₹11,998', '>Jane Doe</td>', 'href="mailto:jane@example.com"', 'href="tel:+919876543210"',
+        'href="https://wa.me/919876543210?text=', 'href="mailto:jane@example.com?subject=Your%20RecoverX%20order%20request%20' . $ref . '"',
+        '>Call</a>', '>WhatsApp</a>', '>E-mail</a>', '>Doe Studio</td>', '22AAAAA0000A1Z5', "Please send a GST invoice.<br>
+Thanks!",
+        'href="https://licensing.test/admin/?page=order&amp;id=1"', 'Open in admin panel', 'Reply-To is jane@example.com'] as $expected) {
+        Assert::true(str_contains($html, $expected), "notification HTML contains {$expected}");
+    }
+    Assert::notContains('?page=create', $html, 'no create link for a stored order');
 
     $confirmation = sentPayload($http, 1);
     Assert::same(['jane@example.com'], $confirmation['Destination']['ToAddresses']);
@@ -150,6 +167,14 @@ test('stores the order, e-mails it to the vendor with Reply-To the customer, the
     Assert::true(str_contains($text, "Your reference: {$ref}"), 'confirmation gives the reference');
     foreach (['Jane', 'invoice', '9876543210', 'Doe Studio'] as $typed) {
         Assert::notContains($typed, $text, 'confirmation repeats no free text');
+    }
+    $confirmationHtml = sentHtml($http, 1);
+    foreach ([$ref, 'We’ve received your order request', 'RecoverX Business <span', '&times;&nbsp;2', 'What happens next', 'We reply with how to pay',
+        'Your licence key arrives by e-mail', 'href="https://licensing.test/download/"', 'Just reply to this e-mail'] as $expected) {
+        Assert::true(str_contains($confirmationHtml, $expected), "confirmation HTML contains {$expected}");
+    }
+    foreach (['Jane', 'jane@', 'Doe', 'invoice', 'Thanks', '9876543210', '22AAAAA0000A1Z5', '22aaaaa0000a1z5'] as $typed) {
+        Assert::notContains($typed, $confirmationHtml, 'confirmation HTML repeats no free text');
     }
 
     Assert::matches('/"msg":"Order request received","ref":"RX-[0-9A-F]{8}","edition":"business","quantity":2,"stored":true,"messageId":"n-1"/', orderLog($app));
@@ -161,6 +186,11 @@ test('optional fields may be left empty, and are stored as NULL', function (): v
     Assert::same('/buy/sent/', $response->header('Location'));
     foreach (['Register to:  —', 'GSTIN:        —', "Message:\n—"] as $expected) {
         Assert::true(str_contains(sentText($http, 0), $expected), "{$expected} shown as a dash");
+    }
+    $html = sentHtml($http, 0);
+    Assert::true(str_contains($html, 'Enterprise <span') && str_contains($html, 'Price on request'), 'Enterprise: price on request');
+    foreach (['Estimated total', 'List price', '₹', '>Register to<', '>GSTIN<', 'Message from the customer', '—'] as $absent) {
+        Assert::notContains($absent, $html, 'the HTML leaves out what is empty');
     }
 
     $row = storedOrders($app)[0];
@@ -314,6 +344,11 @@ test('fails only when the order can be neither stored nor e-mailed', function ()
     Assert::true(str_contains(sentText($http, 0), 'Reference:    — (not stored'), 'the e-mail says it was not stored');
     Assert::true(str_contains(sentText($http, 0), 'https://licensing.test/admin/?page=create'), 'and points to the create page instead');
     Assert::notContains('Your reference', sentText($http, 1), 'no reference to confirm');
+    $html = sentHtml($http, 0);
+    Assert::true(str_contains($html, 'Not saved in the database.'), 'the HTML says it was not stored');
+    Assert::true(str_contains($html, 'href="https://licensing.test/admin/?page=create"'), 'with a button to the create page');
+    Assert::notContains('Open in admin panel', $html, 'nothing stored to open');
+    Assert::notContains('Reference', sentHtml($http, 1), 'no reference badge to confirm');
     Assert::matches('/"level":"error","msg":"Order form could not store the request".*read only/', orderLog($app));
 
     // Neither: the visitor is told it failed.
@@ -344,4 +379,66 @@ test('sends one message to several recipients with its own Reply-To', function (
     Assert::same(['customer@example.com'], $payload['ReplyToAddresses']);
     Assert::throws(\RecoverX\Licensing\Mail\MailError::class, static fn () => mailer(new FakeHttp([]))->send([], 'S', 'T'), '/between 1 and 50/');
     Assert::throws(\RecoverX\Licensing\Mail\MailError::class, static fn () => mailer(new FakeHttp([]))->send('a@example.com', "S\r\nBcc: x", 'T'), '/subject/');
+});
+
+test('escapes everything the customer typed in the notification HTML, and the confirmation repeats none of it', function (): void {
+    ['app' => $app, 'http' => $http] = orderApp([OK_ANSWER, OK_ANSWER]);
+    $fields = orderFields([
+        'name' => '<script>alert(1)</script>',
+        'registerTo' => '"><img src=x onerror=alert(2)>',
+        'message' => "<b>Bold</b> \"double\" 'single' & more\n<a href=\"javascript:alert(3)\">click</a>",
+    ]);
+    Assert::same('/buy/sent/', postOrder($app, $fields)->header('Location'));
+
+    $html = sentHtml($http, 0);
+    foreach (['<script', '<b>', '<img', '<a href="javascript', 'onerror=alert(2)>'] as $raw) {
+        Assert::notContains($raw, $html, "no raw {$raw}");
+    }
+    foreach (['&lt;script&gt;alert(1)&lt;/script&gt;', '&quot;&gt;&lt;img src=x onerror=alert(2)&gt;',
+        "&lt;b&gt;Bold&lt;/b&gt; &quot;double&quot; &apos;single&apos; &amp; more<br>\n&lt;a href=&quot;javascript:alert(3)&quot;&gt;click&lt;/a&gt;"] as $escaped) {
+        Assert::true(str_contains($html, $escaped), "shows {$escaped}");
+    }
+
+    // Links: only our own https site, mailto:, and tel:/wa.me with "+" and digits.
+    preg_match_all('/href="([^"]*)"/', $html, $links);
+    $phoneLinks = 0;
+    foreach ($links[1] as $link) {
+        Assert::matches('#^(https://licensing\.test/|https://recoverx\.snapkio\.com|https://wa\.me/|mailto:|tel:\+)#', $link, "a safe link: {$link}");
+        if (str_starts_with($link, 'tel:')) {
+            Assert::matches('/^tel:\+[0-9]+$/D', $link);
+            $phoneLinks++;
+        }
+        if (str_starts_with($link, 'https://wa.me/')) {
+            Assert::matches('#^https://wa\.me/[0-9]+(\?text=[A-Za-z0-9%._~\-]*)?$#D', $link);
+            $phoneLinks++;
+        }
+    }
+    Assert::same(3, $phoneLinks, 'the mobile row, Call and WhatsApp');
+
+    $confirmation = sentHtml($http, 1) . sentText($http, 1);
+    foreach (['<script', '&lt;script', 'alert', 'Bold', 'double', 'single', 'img', 'click', 'Doe Studio', 'jane@example.com', '9876543210'] as $typed) {
+        Assert::notContains($typed, $confirmation, "the confirmation does not repeat {$typed}");
+    }
+});
+
+test('the notification HTML links only to an https:// site, and totals in Indian digit grouping', function (): void {
+    $order = parsedOrder(orderFields(['edition' => 'technician', 'quantity' => '100']));
+    $saved = ['id' => 3, 'ref' => 'RX-00000003'];
+
+    $notice = OrderForm::notification($order, 'http://licensing.test', Kit::NOW, $saved);
+    Assert::notContains('Open in admin panel', $notice['html'], 'no button to a plain-http address');
+    Assert::notContains('href="http://', $notice['html']);
+    Assert::true(str_contains($notice['text'], 'Open it in the admin panel: http://licensing.test/admin/?page=order&id=3'), 'the text keeps the address');
+
+    $notice = OrderForm::notification($order, 'https://licensing.test/', Kit::NOW, $saved);
+    Assert::true(str_contains($notice['html'], 'href="https://licensing.test/admin/?page=order&amp;id=3"'), 'button to the stored order');
+    Assert::true(str_contains($notice['html'], '₹14,99,900'), '₹14,999 × 100 in lakhs');
+    Assert::true(str_contains($notice['html'], '₹14,999 × 100 licences at list price'), 'how the total is made');
+
+    $one = OrderForm::notification(parsedOrder(orderFields(['edition' => 'professional', 'quantity' => '1'])), 'https://licensing.test', Kit::NOW, $saved);
+    Assert::true(str_contains($one['html'], '₹2,499 × 1 licence at list price'), 'one licence');
+
+    $confirmation = OrderForm::confirmation(['edition' => 'business', 'quantity' => 2], 'http://licensing.test', 'RX-00000003');
+    Assert::notContains('/download/', $confirmation['html'], 'no download button to a plain-http address');
+    Assert::notContains('/download/', $confirmation['text'], 'nor a download line');
 });

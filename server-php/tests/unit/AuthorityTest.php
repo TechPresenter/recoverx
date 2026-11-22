@@ -768,3 +768,21 @@ test('erases the order reference too once the sale’s records need no longer be
     Assert::same(false, $f['authority']->erasePersonalDetails($perpetual)['orderRefErased']);
     Assert::same('order-perpetual', $f['store']->getLicense($perpetual)['orderRef']);
 });
+
+test('erasing a licence’s personal details deletes the website order behind it', function (): void {
+    $f = Kit::fixture();
+    $order = $f['store']->insertOrder([
+        'edition' => 'business', 'quantity' => 1, 'name' => 'Jane Doe', 'email' => 'jane@example.com', 'phoneCountry' => 'IN',
+        'phone' => '+91 9876543210', 'registerTo' => '', 'gstin' => '', 'message' => '',
+    ], null, Kit::NOW);
+    $f['store']->insertOrder([
+        'edition' => 'business', 'quantity' => 1, 'name' => 'Someone Else', 'email' => 'else@example.com', 'phoneCountry' => 'IN',
+        'phone' => '+91 9876500000', 'registerTo' => '', 'gstin' => '', 'message' => '',
+    ], null, Kit::NOW);
+    $key = Kit::mint($f['authority'], ['edition' => 'business', 'email' => 'jane@example.com', 'orderRef' => $order['ref'], 'days' => 365]);
+
+    Assert::same(1, $f['authority']->erasePersonalDetails($key)['orders']);
+    Assert::same(null, $f['store']->getOrder($order['id']));
+    Assert::same(1, (int) $f['store']->pdo->query('SELECT COUNT(*) FROM orders')->fetchColumn(), 'other orders stay');
+    Assert::same($order['ref'], $f['store']->getLicense($key)['orderRef'], 'the reference stays for the accounts');
+});

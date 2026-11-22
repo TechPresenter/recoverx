@@ -109,14 +109,14 @@ ${choices}
 <div class="field"><label for="order-email">Email for the licence key</label><input id="order-email" name="email" type="email" maxlength="254" autocomplete="email" required></div>
 <div class="field"><label for="order-phone">Mobile number</label><div class="phone-row"><label class="sr-only" for="order-phone-country">Country code</label><select id="order-phone-country" name="phoneCountry" required>
 ${countries}
-</select><input id="order-phone" name="phone" type="tel" inputmode="tel" autocomplete="tel-national" maxlength="20" pattern="${PHONE_PATTERN}" required title="Digits only — choose the country code from the list"></div></div>
+</select><input id="order-phone" name="phone" type="tel" inputmode="tel" autocomplete="tel-national" maxlength="20" pattern="${PHONE_PATTERN}" required placeholder="98765 43210" aria-describedby="order-phone-hint" title="Digits only, without the country code or a leading 0"></div><p class="field-hint" id="order-phone-hint">Without the country code or a leading 0 — choose the country from the list.</p></div>
 <div class="field"><label for="order-quantity">Number of licences</label><input id="order-quantity" name="quantity" type="number" inputmode="numeric" min="1" max="100" value="1" required></div>
 <div class="field"><label for="order-register">Register the licence to <span class="opt">(optional)</span></label><input id="order-register" name="registerTo" type="text" maxlength="200" placeholder="You or your organisation"></div>
 <div class="field"><label for="order-gstin">GSTIN for the invoice <span class="opt">(optional)</span></label><input id="order-gstin" name="gstin" type="text" maxlength="15" pattern="[0-9A-Za-z]{15}" title="15 letters and digits"></div>
 </div>
 <div class="field"><label for="order-message">Message <span class="opt">(optional)</span></label><textarea id="order-message" name="message" rows="4" maxlength="2000"></textarea></div>
 <div class="order-trap" aria-hidden="true"><label for="order-nectar">Leave this field empty</label><input id="order-nectar" name="nectar" type="text" tabindex="-1" autocomplete="off"></div>
-<p class="order-note">We use these details only to send you payment details and your licence — see the <a href="/privacy/">privacy policy</a>.</p>
+<p class="order-note">We use these details only to contact you about this order (by email, phone or WhatsApp) and to send you payment details and your licence — see the <a href="/privacy/">privacy policy</a>.</p>
 <button class="btn btn-primary" type="submit">${icon('arrow')}Send order request</button>
 </form>
 <p class="order-alt">Prefer email? Write to <a href="mailto:${site.email}">${site.email}</a> with the edition and the number of licences.</p>`

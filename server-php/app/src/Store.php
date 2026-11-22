@@ -655,6 +655,38 @@ class Store
         return $this->run('DELETE FROM orders WHERE updated_at < ?', [$cutoff])->rowCount();
     }
 
+    /** Delete the orders with this reference (erasing a licence's personal details). Returns how many went. */
+    public function deleteOrdersByRef(string $ref): int
+    {
+        return $this->run('DELETE FROM orders WHERE ref = ?', [$ref])->rowCount();
+    }
+
+    /**
+     * Delete the order form's rate-limit buckets that have refilled by their
+     * own burst and refill: those whose id matches `$like` (and not
+     * `$notLike`), except `$exceptIds`. A full bucket changes no decision, so
+     * this only forgets addresses sooner.
+     *
+     * @param list<string> $exceptIds
+     */
+    public function deleteRefilledOrderBuckets(string $like, ?string $notLike, array $exceptIds, int $burst, float $refillPerMs, int $now): int
+    {
+        $sql = "DELETE FROM rate_limits WHERE id LIKE ? ESCAPE '\\'";
+        $parameters = [$like];
+        if ($notLike !== null) {
+            $sql .= " AND id NOT LIKE ? ESCAPE '\\'";
+            $parameters[] = $notLike;
+        }
+        if ($exceptIds !== []) {
+            $sql .= ' AND id NOT IN (' . implode(', ', array_fill(0, count($exceptIds), '?')) . ')';
+            array_push($parameters, ...$exceptIds);
+        }
+        $sql .= ' AND tokens + (? - updated_at) * ? >= ?';
+        array_push($parameters, $now, (string) $refillPerMs, $burst);
+
+        return $this->run($sql, $parameters)->rowCount();
+    }
+
     /** A new order reference: `RX-` and eight upper-case hex digits. */
     protected function newOrderRef(): string
     {
@@ -918,7 +950,7 @@ class Store
             // The order form's overall cap is one bucket for everyone, so a
             // flood of new addresses must not evict it.
             $this->run(
-                "DELETE FROM rate_limits WHERE id IN (SELECT id FROM rate_limits WHERE id <> 'order|*' ORDER BY updated_at, id LIMIT ?)",
+                "DELETE FROM rate_limits WHERE id IN (SELECT id FROM rate_limits WHERE id NOT IN ('order|*', 'order|to|*') ORDER BY updated_at, id LIMIT ?)",
                 [$excess],
             );
         }

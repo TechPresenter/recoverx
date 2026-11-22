@@ -1669,7 +1669,7 @@ describe.skipIf(PHP === null)(
           expect(prefilled.text).toContain('value="jane.order@example.com"')
           expect(prefilled.text).toContain('name="count" inputmode="numeric" value="3"')
           expect(prefilled.text).toContain(`name="orderRef" maxlength="200" value="${ref}"`)
-          expect(prefilled.text).toContain(`Website order ${ref}; mobile +91 9876543210</textarea>`)
+          expect(prefilled.text).toContain(`Website order ${ref}</textarea>`)
 
           const created = await browse('POST', '/admin/', {
             action: 'create',

@@ -9,9 +9,9 @@ use RecoverX\Licensing\App;
 use RecoverX\Licensing\Http\Api;
 use RecoverX\Licensing\Http\Request;
 use RecoverX\Licensing\Http\Response;
+use RecoverX\Licensing\Mail\EmailHtml;
 use RecoverX\Licensing\Mail\MailError;
 use RecoverX\Licensing\Mail\SesMailer;
-use RecoverX\Licensing\RateLimiter;
 use RecoverX\Licensing\Web\Html;
 
 /**
@@ -43,17 +43,6 @@ final class OrderForm
     public const SENT = '/buy/sent/';
     public const FAILED = '/buy/error/';
     public const FORM = '/buy/#order';
-
-    /** Requests one address may send: a burst, then this many per hour. */
-    private const PER_ADDRESS_BURST = 5;
-    private const PER_ADDRESS_PER_HOUR = 5;
-
-    /** Requests from everywhere together: a burst, then this many per day. */
-    private const OVERALL_BURST = 100;
-    private const OVERALL_PER_DAY = 200;
-
-    /** Confirmations one customer address may receive per day. */
-    private const CONFIRMATIONS_PER_DAY = 1;
 
     /** Longest value accepted per field, in characters. */
     private const MAX = ['name' => 200, 'email' => 254, 'registerTo' => 200, 'gstin' => 15, 'message' => 2000];
@@ -115,19 +104,19 @@ final class OrderForm
 
         $store = $this->app->store();
         $now = $this->app->now();
-        $mine = $store->takeToken('order|' . RateLimiter::clientBucketId($ip), self::PER_ADDRESS_BURST, self::PER_ADDRESS_PER_HOUR / 3_600_000, $now, 10_000);
-        $all = $mine['allowed'] ? $store->takeToken('order|*', self::OVERALL_BURST, self::OVERALL_PER_DAY / 86_400_000, $now, 10_000) : $mine;
-        if (!$mine['allowed'] || !$all['allowed']) {
-            $logger->warn('Order form rate limited', ['ip' => $ip, 'overall' => $mine['allowed']]);
+        if (!OrderLimits::takeRequest($store, $ip, $now)['allowed']) {
+            $logger->warn('Order form rate limited', ['ip' => $ip]);
 
             return Html::redirect(self::FAILED);
         }
 
         // Stored first: the admin panel is where the vendor follows orders up,
-        // and a stored order survives an e-mail that does not arrive.
+        // and a stored order survives an e-mail that does not arrive. Without
+        // the sender's address: that stays in the request log, which keeps it
+        // for the 13 months the privacy policy gives.
         $saved = null;
         try {
-            $saved = $store->insertOrder($order, $ip, $now);
+            $saved = $store->insertOrder($order, null, $now);
         } catch (\Throwable $error) {
             $logger->error('Order form could not store the request', ['error' => $error->getMessage(), 'ip' => $ip]);
         }
@@ -148,7 +137,7 @@ final class OrderForm
         } else {
             try {
                 $notice = self::notification($order, $site, $now, $saved);
-                $messageId = $mailer->send($recipients, $notice['subject'], $notice['text'], $order['email']);
+                $messageId = $mailer->send($recipients, $notice['subject'], $notice['text'], $order['email'], $notice['html']);
             } catch (MailError|\JsonException $error) {
                 $logger->error('Order form could not e-mail the request', ['error' => $error->getMessage(), 'ref' => $saved['ref'] ?? null, 'ip' => $ip]);
             }
@@ -167,16 +156,21 @@ final class OrderForm
         }
 
         // The confirmation is a courtesy: the vendor already has the request.
-        // One per address a day, so the form cannot be used to flood an inbox.
+        // One per mailbox a day and a few a day overall (OrderLimits), so the
+        // form cannot be used to flood an inbox; nothing here can turn the
+        // outcome into an error any more.
         if ($mailer !== null) {
-            $recipientBucket = 'order|to|' . substr(hash('sha256', strtolower($order['email'])), 0, 32);
-            if ($store->takeToken($recipientBucket, self::CONFIRMATIONS_PER_DAY, self::CONFIRMATIONS_PER_DAY / 86_400_000, $now, 10_000)['allowed']) {
-                try {
+            try {
+                if (OrderLimits::takeConfirmation($store, $order['email'], $now)) {
                     $confirmation = self::confirmation($order, $site, $saved['ref'] ?? null);
-                    $mailer->send($order['email'], $confirmation['subject'], $confirmation['text']);
-                } catch (MailError|\JsonException $error) {
-                    $logger->warn('Order form could not confirm to the customer', ['error' => $error->getMessage()]);
+                    $mailer->send($order['email'], $confirmation['subject'], $confirmation['text'], null, $confirmation['html']);
                 }
+            } catch (\Throwable $error) {
+                // SES's message can quote the address; the log keeps none.
+                $logger->warn('Order form could not confirm to the customer', [
+                    'error' => preg_replace('/[^\s<>@,;:"\']+@[^\s<>@,;:"\']+/', '<address>', $error->getMessage()) ?? 'unknown',
+                    'ref' => $saved['ref'] ?? null,
+                ]);
             }
         }
 
@@ -296,17 +290,20 @@ final class OrderForm
     }
 
     /**
-     * The e-mail to the vendor. Everything the customer typed is in the body,
-     * as plain text; the subject carries only the reference, the edition, the
-     * count and the name (one line, no control characters).
+     * The e-mail to the vendor. Everything the customer typed is in the body —
+     * as plain text, and escaped in the HTML version; the subject carries only
+     * the reference, the edition, the count and the name (one line, no control
+     * characters). The HTML version leads with the order and what it is worth,
+     * then the customer with one-tap Call, WhatsApp and E-mail buttons.
      *
      * @param array{edition: string, quantity: int, name: string, email: string, phone: string, registerTo: string, gstin: string, message: string} $order
      * @param null|array{id: int, ref: string} $saved the stored order, or `null` when it could not be stored
-     * @return array{subject: string, text: string}
+     * @return array{subject: string, text: string, html: string}
      */
     public static function notification(array $order, string $site, int $nowMs, ?array $saved = null): array
     {
         [$label, $seats, $price] = Panel::EDITIONS[$order['edition']];
+        $received = self::indiaTime($nowMs);
         $none = '—';
         $lines = [
             'A new order request came in through the website order form.',
@@ -319,7 +316,7 @@ final class OrderForm
             "Mobile:       {$order['phone']}",
             'Register to:  ' . ($order['registerTo'] === '' ? $none : $order['registerTo']),
             'GSTIN:        ' . ($order['gstin'] === '' ? $none : $order['gstin']),
-            'Received:     ' . gmdate('Y-m-d H:i', intdiv($nowMs, 1000)) . ' UTC',
+            "Received:     {$received}",
             '',
             'Message:',
             $order['message'] === '' ? $none : $order['message'],
@@ -333,37 +330,173 @@ final class OrderForm
         return [
             'subject' => 'RecoverX order' . ($saved === null ? '' : ' ' . $saved['ref']) . ": {$label} × {$order['quantity']} — {$order['name']}",
             'text' => implode("\n", $lines) . "\n",
+            'html' => self::notificationHtml($order, $site, $received, $saved),
         ];
     }
 
     /**
+     * @param array{edition: string, quantity: int, name: string, email: string, phone: string, registerTo: string, gstin: string, message: string} $order
+     * @param null|array{id: int, ref: string} $saved
+     */
+    private static function notificationHtml(array $order, string $site, string $received, ?array $saved): string
+    {
+        [$label, $seats, $price] = Panel::EDITIONS[$order['edition']];
+        $quantity = (int) $order['quantity'];
+        $ref = $saved['ref'] ?? null;
+        $each = self::rupees($price);
+
+        $summary = EmailHtml::sectionTitle('Order summary')
+            . EmailHtml::big(EmailHtml::e($label) . ' ' . EmailHtml::times($quantity))
+            . EmailHtml::pill("Each licence: {$seats}")
+            . ($each === null ? '' : EmailHtml::pill("List price: {$price}", 'violet'))
+            . EmailHtml::spacer(8)
+            . EmailHtml::divider()
+            . ($each === null
+                ? EmailHtml::split(
+                    EmailHtml::text('Price', 15, 700, 'ink', '0') . EmailHtml::text('Enterprise is quoted for each customer.', 13, 400, 'muted', '2px 0 0'),
+                    EmailHtml::text('Price on request', 18, 800, 'brand', '0', 'right'),
+                )
+                : EmailHtml::split(
+                    EmailHtml::text('Estimated total', 15, 700, 'ink', '0')
+                        . EmailHtml::text(EmailHtml::e(self::inr($each) . ' × ' . $quantity . ($quantity === 1 ? ' licence' : ' licences') . ' at list price'), 13, 400, 'muted', '2px 0 0'),
+                    EmailHtml::text(EmailHtml::e(self::inr($each * $quantity)), 24, 800, 'brand', '0', 'right')
+                        . EmailHtml::text('per year', 13, 400, 'muted', '0', 'right'),
+                ));
+
+        $about = 'about your RecoverX order request' . ($ref === null ? '' : " {$ref}");
+        $email = EmailHtml::mailto($order['email']);
+        $call = EmailHtml::tel($order['phone']);
+        $customer = EmailHtml::sectionTitle('Customer')
+            . EmailHtml::rows([
+                ['Name', EmailHtml::e($order['name'])],
+                ['E-mail', EmailHtml::link($email, $order['email'])],
+                ['Mobile', EmailHtml::link($call, $order['phone'])],
+                ['Register to', $order['registerTo'] === '' ? '' : EmailHtml::e($order['registerTo'])],
+                ['GSTIN', $order['gstin'] === '' ? '' : EmailHtml::mono($order['gstin'])],
+            ])
+            . EmailHtml::spacer(14)
+            . EmailHtml::quickButtons([
+                [$call, 'Call', 'brand'],
+                [EmailHtml::whatsapp($order['phone'], 'Hello, this is RecoverX (Appsgain Technologies) ' . $about . '.'), 'WhatsApp', 'green'],
+                [EmailHtml::mailto($order['email'], 'Your RecoverX order request' . ($ref === null ? '' : " {$ref}")), 'E-mail', 'violet'],
+            ]);
+
+        $message = $order['message'] === '' ? ''
+            : EmailHtml::sectionTitle('Message from the customer') . EmailHtml::quote($order['message']);
+
+        $next = $saved === null
+            ? EmailHtml::callout('<strong>Not saved in the database.</strong> This request is only in this e-mail, so keep it. '
+                . 'Once the customer has paid, create the licence by hand.', 'amber')
+                . EmailHtml::button(EmailHtml::siteUrl($site, '/admin/?page=create'), 'Create a licence')
+            : EmailHtml::spacer(4) . EmailHtml::button(EmailHtml::siteUrl($site, '/admin/?page=order&id=' . (int) $saved['id']), 'Open in admin panel');
+        $next .= EmailHtml::text('Replying to this e-mail answers the customer: Reply-To is ' . EmailHtml::e($order['email']) . '.', 13, 400, 'muted', '0', 'center');
+
+        return EmailHtml::document(
+            title: 'New order request' . ($ref === null ? '' : " {$ref}"),
+            preheader: "{$label} × {$quantity} from {$order['name']}"
+                . ($each === null ? ' · price on request' : ' · est. ' . self::inr($each * $quantity) . ' per year'),
+            eyebrow: 'Website order',
+            heading: 'New order request',
+            subheading: "Received {$received}",
+            badgeHtml: $ref === null ? EmailHtml::pill('Not saved: keep this e-mail', 'amber') : EmailHtml::reference($ref),
+            bodyHtml: EmailHtml::box($summary) . EmailHtml::box($customer, 'outline') . $message . $next,
+            footnote: 'Sent by the RecoverX licence server when someone uses the order form on the website.',
+        );
+    }
+
+    /**
      * The confirmation to the customer. It repeats only the edition, the
-     * count and the reference the server gave the order, never free text, so
-     * nobody can use the form to send a stranger words of their own.
+     * count and the reference the server gave the order, never free text —
+     * not even their name — so nobody can use the form to send a stranger
+     * words of their own.
      *
      * @param array{edition: string, quantity: int} $order
-     * @return array{subject: string, text: string}
+     * @return array{subject: string, text: string, html: string}
      */
     public static function confirmation(array $order, string $site, ?string $ref = null): array
     {
-        [$label] = Panel::EDITIONS[$order['edition']];
+        [$label, $seats] = Panel::EDITIONS[$order['edition']];
+        $quantity = (int) $order['quantity'];
+        $download = EmailHtml::siteUrl($site, '/download/');
         $text = implode("\n", [
             'Hello,',
             '',
             'Thank you for your interest in RecoverX. We have received your order request:',
             '',
-            "    RecoverX {$label} × {$order['quantity']}",
+            "    RecoverX {$label} × {$quantity}",
             '',
             ...($ref === null ? [] : ["Your reference: {$ref}", '']),
-            'We will reply to this e-mail with how to pay, usually within one business day.',
-            'Your licence key follows by e-mail once the payment has been received.',
+            'What happens next:',
+            '1. We reply to this e-mail with how to pay, usually within one business day.',
+            '2. You complete the payment.',
+            '3. Your licence key arrives by e-mail, with the steps to activate it.',
             '',
+            ...($download === null ? [] : ["You can install RecoverX now and activate it when the key arrives: {$download}", '']),
+            'Questions? Just reply to this e-mail.',
             'If you did not send this request, you can ignore this e-mail.',
             '',
-            'RecoverX',
+            'RecoverX by ' . EmailHtml::COMPANY,
             $site,
         ]) . "\n";
 
-        return ['subject' => 'Your RecoverX order request', 'text' => $text];
+        $body = EmailHtml::text('Hello,', 17, 700, 'ink', '0 0 8px')
+            . EmailHtml::text('Thank you for your interest in RecoverX. We have received your order request and will get back to you shortly.')
+            . EmailHtml::box(
+                EmailHtml::sectionTitle('Your request')
+                . EmailHtml::big(EmailHtml::e("RecoverX {$label}") . ' ' . EmailHtml::times($quantity))
+                . EmailHtml::pill("Each licence: {$seats}")
+                . EmailHtml::pill($quantity === 1 ? '1 licence' : "{$quantity} licences", 'violet'),
+            )
+            . EmailHtml::sectionTitle('What happens next')
+            . EmailHtml::steps([
+                ['We reply with how to pay', 'Usually within one business day, to this e-mail address.'],
+                ['You complete the payment', 'Using the details in our reply.'],
+                ['Your licence key arrives by e-mail', 'With three short steps to activate RecoverX.'],
+            ])
+            . ($download === null ? ''
+                : EmailHtml::text('You can install RecoverX now and activate it when your key arrives.', 14, 400, 'muted', '0 0 14px', 'center')
+                    . EmailHtml::button($download, 'Download RecoverX'))
+            . EmailHtml::text('Questions? Just reply to this e-mail — it reaches our team.', 14, 400, 'muted', '0', 'center');
+
+        return [
+            'subject' => 'Your RecoverX order request',
+            'text' => $text,
+            'html' => EmailHtml::document(
+                title: 'Your RecoverX order request',
+                preheader: ($ref === null ? '' : "Reference {$ref}. ") . 'We will reply with how to pay, usually within one business day.',
+                eyebrow: 'Order request',
+                heading: 'We’ve received your order request',
+                subheading: 'Thank you for your interest in RecoverX.',
+                badgeHtml: $ref === null ? '' : EmailHtml::reference($ref),
+                bodyHtml: $body,
+                footnote: 'If you did not send this request, you can ignore this e-mail.',
+            ),
+        ];
+    }
+
+    /** When an order came in, in India's time, e.g. `22 Nov 2026, 5:00 pm IST`. */
+    private static function indiaTime(int $epochMs): string
+    {
+        $seconds = intdiv($epochMs, 1000) - ($epochMs % 1000 < 0 ? 1 : 0);
+        $time = (new \DateTimeImmutable('@' . $seconds))->setTimezone(new \DateTimeZone('Asia/Kolkata'));
+
+        return $time->format('j M Y, g:i a') . ' IST';
+    }
+
+    /** The rupees in an edition's price such as `₹5,999 per year`, or `null` for one without a list price (Enterprise). */
+    private static function rupees(string $price): ?int
+    {
+        return preg_match('/^₹([0-9][0-9,]*) per year$/uD', $price, $match) === 1 ? (int) str_replace(',', '', $match[1]) : null;
+    }
+
+    /** Rupees with Indian digit grouping, e.g. `₹14,99,900`. */
+    private static function inr(int $amount): string
+    {
+        $digits = (string) $amount;
+        if (strlen($digits) <= 3) {
+            return "₹{$digits}";
+        }
+
+        return '₹' . preg_replace('/\B(?=(\d{2})+(?!\d))/', ',', substr($digits, 0, -3)) . ',' . substr($digits, -3);
     }
 }

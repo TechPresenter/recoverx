@@ -635,7 +635,6 @@ final class Panel
             . '<dt>Mobile</dt><dd><a href="tel:' . Html::e($tel) . '">' . Html::e($order['phone']) . '</a></dd>'
             . '<dt>Register to</dt><dd>' . $optional($order['registerTo']) . '</dd>'
             . '<dt>GSTIN</dt><dd>' . $optional($order['gstin']) . '</dd>'
-            . '<dt>Sent from</dt><dd>' . $optional($order['ip']) . '</dd>'
             . '<dt>E-mailed to you</dt><dd>' . ($order['mailedAt'] === null ? 'not e-mailed' : Html::time($order['mailedAt'])) . '</dd>'
             . '<dt>Message</dt><dd>' . ($order['message'] === null ? $none : nl2br(Html::e($order['message']))) . '</dd>'
             . '<dt>Notes</dt><dd>' . ($order['notes'] === null ? $none : nl2br(Html::e($order['notes']))) . '</dd></dl>';
@@ -698,10 +697,12 @@ final class Panel
             'email' => $order['email'],
             'count' => (string) $order['quantity'],
             'orderRef' => $order['ref'],
-            'notes' => "Website order {$order['ref']}; mobile {$order['phone']}",
+            'notes' => "Website order {$order['ref']}",
         ];
         $intro = Html::notice('ok', 'Filled in from order <a href="?page=order&amp;id=' . $order['id'] . '">' . Html::e($order['ref']) . '</a> ('
-            . Html::e($order['name']) . '). Check the details, then create; the order is marked “' . Html::e(Store::ORDER_STATUSES['licensed']) . '”.');
+            . Html::e($order['name']) . '). Check the details, then create; ' . (in_array($order['status'], ['new', 'contacted', 'paid'], true)
+                ? 'the order is then marked “' . Html::e(Store::ORDER_STATUSES['licensed']) . '”.'
+                : 'the order stays “' . Html::e(Store::ORDER_STATUSES[$order['status']] ?? $order['status']) . '” — change its status on the order page if it should.'));
 
         return $this->createPage($sticky, null, 200, $intro);
     }
@@ -947,7 +948,8 @@ final class Panel
                     ]);
                     Session::flash('notice', ['ok', 'Personal details erased: the name, e-mail and notes, and '
                         . ($erased['addresses'] === 1 ? '1 recorded address' : "{$erased['addresses']} recorded addresses")
-                        . ($erased['orderRefErased'] ? ', and the order reference, as the licence ended more than 8 years ago.' : '.')]);
+                        . ($erased['orderRefErased'] ? ', and the order reference, as the licence ended more than 8 years ago' : '')
+                        . ($erased['orders'] > 0 ? '; the website order behind it was deleted too.' : '.')]);
 
                     return Html::redirect($back);
 
@@ -1195,7 +1197,7 @@ final class Panel
 
         $site = $this->app->config()->siteUrl() ?? ('https://' . ($this->request->header('host') ?? 'localhost'));
         $mail = LicenceMail::compose($licences, $site);
-        $messageId = $mailer->send($to, $mail['subject'], $mail['text']);
+        $messageId = $mailer->send($to, $mail['subject'], $mail['text'], null, $mail['html']);
 
         foreach ($licences as $licence) {
             $this->app->authority()->recordKeyEmailed($licence['key'], $messageId, $context);

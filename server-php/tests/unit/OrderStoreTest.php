@@ -174,3 +174,50 @@ test('deletes one order, or every order unchanged since a cutoff', function (): 
     Assert::same([2, 3], array_map('intval', $store->pdo->query('SELECT id FROM orders ORDER BY id')->fetchAll(\PDO::FETCH_COLUMN)));
     Assert::same(0, $store->deleteOrdersBefore(Kit::NOW - 730 * Kit::DAY));
 });
+
+test('deletes the orders with a reference', function (): void {
+    $store = Kit::fixture()['store'];
+    $first = $store->insertOrder(anOrder(), null, Kit::NOW);
+    $store->insertOrder(anOrder(), null, Kit::NOW);
+    Assert::same(1, $store->deleteOrdersByRef($first['ref']));
+    Assert::same(0, $store->deleteOrdersByRef($first['ref']));
+    Assert::same(1, (int) $store->pdo->query('SELECT COUNT(*) FROM orders')->fetchColumn());
+});
+
+test('one mailbox, however it is spelt, is one confirmation bucket', function (): void {
+    foreach (['Jane.Doe+orders@GMail.com', 'janedoe@googlemail.com', 'j.a.n.e.doe@gmail.com'] as $variant) {
+        Assert::same('janedoe@gmail.com', \RecoverX\Licensing\Order\OrderLimits::normaliseAddress($variant), $variant);
+    }
+    // Dots matter outside Gmail; a tag never does.
+    Assert::same('jane.doe@example.com', \RecoverX\Licensing\Order\OrderLimits::normaliseAddress('Jane.Doe+x@Example.com'));
+
+    $store = Kit::fixture()['store'];
+    Assert::same(true, \RecoverX\Licensing\Order\OrderLimits::takeConfirmation($store, 'jane.doe@gmail.com', Kit::NOW));
+    Assert::same(false, \RecoverX\Licensing\Order\OrderLimits::takeConfirmation($store, 'janedoe+2@gmail.com', Kit::NOW), 'same mailbox');
+    for ($i = 0; $i < 9; $i++) {
+        Assert::same(true, \RecoverX\Licensing\Order\OrderLimits::takeConfirmation($store, "buyer{$i}@example.com", Kit::NOW), "buyer {$i}");
+    }
+    Assert::same(false, \RecoverX\Licensing\Order\OrderLimits::takeConfirmation($store, 'one-too-many@example.com', Kit::NOW), 'overall cap');
+});
+
+test('forgets order buckets once they have refilled by their own limits', function (): void {
+    $store = Kit::fixture()['store'];
+    \RecoverX\Licensing\Order\OrderLimits::takeRequest($store, '203.0.113.7', Kit::NOW);
+    \RecoverX\Licensing\Order\OrderLimits::takeConfirmation($store, 'jane@example.com', Kit::NOW);
+    $ids = static fn (): array => $store->pdo->query('SELECT id FROM rate_limits ORDER BY id')->fetchAll(\PDO::FETCH_COLUMN);
+    Assert::same(4, count($ids()));
+
+    // A minute later nothing has refilled; the activation limiter's pruning leaves them too.
+    Assert::same(0, \RecoverX\Licensing\Order\OrderLimits::forgetRefilled($store, Kit::NOW + 60_000));
+    Assert::same(0, $store->deleteRefilledBuckets(20, 30 / 60_000, Kit::NOW + 3_600_000));
+
+    // After an hour and a bit the per-address bucket and the overall one (one token of a hundred
+    // spent) are full again; the confirmation buckets, which refill by the day, are not.
+    Assert::same(2, \RecoverX\Licensing\Order\OrderLimits::forgetRefilled($store, Kit::NOW + 4_000_000));
+    Assert::same(["order|to|*"], array_values(array_filter($ids(), static fn (string $id): bool => $id === "order|to|*")));
+    Assert::same(2, count($ids()));
+
+    // A day (and a minute, past float rounding) later every one has refilled.
+    Assert::same(2, \RecoverX\Licensing\Order\OrderLimits::forgetRefilled($store, Kit::NOW + 86_460_000));
+    Assert::same([], $ids());
+});

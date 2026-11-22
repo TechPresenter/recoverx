@@ -678,7 +678,7 @@ final class Authority
      * (`RECORDS_KEPT_DAYS` after the licence ended); erased after that, it
      * goes too, and nothing personal is left.
      *
-     * @return array{license: array<string, mixed>, addresses: int, orderRefErased: bool}
+     * @return array{license: array<string, mixed>, addresses: int, orderRefErased: bool, orders: int}
      */
     public function erasePersonalDetails(string $keyInput): array
     {
@@ -690,6 +690,8 @@ final class Authority
 
             $this->store->setDetails($key, null, null, null);
             $addresses = $this->store->eraseEventAddresses($key);
+            // The website order behind the licence holds the same person's details.
+            $orders = $license['orderRef'] === null ? 0 : $this->store->deleteOrdersByRef($license['orderRef']);
 
             $endedAt = self::endedAt($license);
             $orderRefErased = $license['orderRef'] !== null && $endedAt !== null
@@ -698,7 +700,7 @@ final class Authority
                 $this->store->clearOrderRef($key);
             }
 
-            return ['license' => $this->requireLicense($key), 'addresses' => $addresses, 'orderRefErased' => $orderRefErased];
+            return ['license' => $this->requireLicense($key), 'addresses' => $addresses, 'orderRefErased' => $orderRefErased, 'orders' => $orders];
         });
     }
 
